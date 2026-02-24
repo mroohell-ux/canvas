@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -63,7 +64,11 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun StickyNotesApp(onOpenUri: (Uri) -> List<StickyNote>) {
     val context = LocalContext.current
-    val notes = remember { mutableStateListOf<StickyNote>() }
+    val notes = remember {
+        mutableStateListOf<StickyNote>().apply {
+            addAll(defaultStickyNotes())
+        }
+    }
     var selectedIndex by remember { mutableIntStateOf(0) }
     var showBack by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
@@ -155,10 +160,57 @@ private fun StickyNotesApp(onOpenUri: (Uri) -> List<StickyNote>) {
                             .padding(horizontal = 12.dp)
                     )
                 }
+
+                Button(
+                    onClick = { openDocument.launch(arrayOf("application/json")) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x66000000)),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(10.dp)
+                ) {
+                    Text("Import JSON")
+                }
             }
         }
     }
 }
+
+private fun defaultStickyNotes(): List<StickyNote> = listOf(
+    StickyNote(
+        id = 101,
+        flowId = 1,
+        flowName = "Daily Phrases",
+        cardId = 11,
+        cardTitle = "Greetings",
+        color = "#FFFFF8A6",
+        rotation = -2.5,
+        front = NoteSide(label = "front", text = "你好"),
+        back = NoteSide(label = "back", text = "Hello")
+    ),
+    StickyNote(
+        id = 102,
+        flowId = 1,
+        flowName = "Daily Phrases",
+        cardId = 12,
+        cardTitle = "Thanks",
+        color = "#FFD7E8FF",
+        rotation = 1.0,
+        front = NoteSide(label = "front", text = "谢谢"),
+        back = NoteSide(label = "back", text = "Thank you")
+    ),
+    StickyNote(
+        id = 103,
+        flowId = 2,
+        flowName = "Travel",
+        cardId = 21,
+        cardTitle = "Where",
+        color = "#FFFFDAD7",
+        rotation = 0.0,
+        front = NoteSide(label = "front", text = "厕所在哪里？"),
+        back = NoteSide(label = "back", text = "Where is the restroom?")
+    )
+)
 
 private fun parseColor(value: String): Color {
     return runCatching {

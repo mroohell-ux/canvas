@@ -2,6 +2,7 @@
 
 A Wear OS app for Samsung Galaxy Watch / Wear OS devices that:
 
+- Starts with a few built-in sample sticky notes so you can preview the UI immediately.
 - Lets you pick a JSON file from storage.
 - Imports all sticky notes in that file.
 - Shows the **front** side first.
