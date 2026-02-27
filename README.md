@@ -18,6 +18,12 @@ The importer expects a structure with a top-level `stickyNotes` array (like your
 
 Unknown fields are ignored.
 
+## Wear OS file picker note
+
+Some watch builds do not ship a document picker app by default.
+If tapping **Import JSON** shows a "no application can handle this action" message,
+install Samsung **My Files** (or another file manager/document provider) on the watch.
+
 ## Build
 
 ```bash

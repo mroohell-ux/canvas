@@ -1,5 +1,6 @@
 package com.example.wearstickynotes
 
+import android.content.ActivityNotFoundException
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -74,10 +75,7 @@ private fun StickyNotesApp(onOpenUri: (Uri) -> List<StickyNote>) {
     var loading by remember { mutableStateOf(false) }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
 
-    val openDocument = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    val handlePickedUri: (Uri) -> Unit = { uri ->
         loading = true
         runCatching {
             onOpenUri(uri)
@@ -93,6 +91,38 @@ private fun StickyNotesApp(onOpenUri: (Uri) -> List<StickyNote>) {
         loading = false
     }
 
+    val openDocument = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            handlePickedUri(uri)
+        }
+    }
+
+    val openContent = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            handlePickedUri(uri)
+        }
+    }
+
+    fun launchJsonPicker() {
+        try {
+            openDocument.launch(arrayOf("application/json", "text/plain", "*/*"))
+        } catch (_: ActivityNotFoundException) {
+            runCatching {
+                openContent.launch("*/*")
+            }.onFailure {
+                Toast.makeText(
+                    context,
+                    "No file picker available on this watch. Install My Files or import from phone.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
     when {
         loading -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -103,7 +133,7 @@ private fun StickyNotesApp(onOpenUri: (Uri) -> List<StickyNote>) {
         notes.isEmpty() -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Button(
-                    onClick = { openDocument.launch(arrayOf("application/json")) },
+                    onClick = { launchJsonPicker() },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A2A2A))
                 ) {
                     Text("Import JSON")
@@ -162,7 +192,7 @@ private fun StickyNotesApp(onOpenUri: (Uri) -> List<StickyNote>) {
                 }
 
                 Button(
-                    onClick = { openDocument.launch(arrayOf("application/json")) },
+                    onClick = { launchJsonPicker() },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0x66000000)),
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
