@@ -35,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -47,6 +48,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -303,11 +307,18 @@ private fun NotesScreen(
     var horizontalDragSum by remember { mutableFloatStateOf(0f) }
     var verticalDragSum by remember { mutableFloatStateOf(0f) }
     var showTray by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
     val trayScrimAlpha by animateFloatAsState(
         targetValue = if (showTray) 0.30f else 0f,
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
         label = "trayScrimAlpha"
     )
+
+    LaunchedEffect(notes.size, showTray) {
+        if (!showTray) {
+            focusRequester.requestFocus()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (notes.isEmpty()) {
@@ -325,6 +336,8 @@ private fun NotesScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .focusRequester(focusRequester)
+                .focusable()
                 .onRotaryScrollEvent {
                     var updated = rotaryAccumulator + it.verticalScrollPixels
                     when {
