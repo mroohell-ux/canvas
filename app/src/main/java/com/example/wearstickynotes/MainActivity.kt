@@ -580,48 +580,37 @@ private fun noteRadialGradient(note: StickyNote): Brush {
     val hsv = FloatArray(3)
     android.graphics.Color.colorToHSV(base.toArgb(), hsv)
 
-    val glowTargets = floatArrayOf(152f, 165f, 174f, 182f, 190f, 160f)
-    val variantIndex = ((note.id % glowTargets.size.toLong()).toInt() + glowTargets.size) % glowTargets.size
-    val glowHue = blendHue(hsv[0], glowTargets[variantIndex], 0.22f)
+    val hueShift = ((note.id % 5).toInt() - 2) * 3f
+    val hue = (hsv[0] + hueShift + 360f) % 360f
 
-    val outer = hsvColor(
-        hue = glowHue,
-        saturation = (hsv[1] * 0.95f + 0.12f).coerceIn(0.42f, 0.82f),
-        value = (hsv[2] * 0.22f).coerceIn(0.12f, 0.28f)
+    // Calm system-card styling: broad soft center + deep edge vignette.
+    val center = hsvColor(
+        hue = hue,
+        saturation = (hsv[1] * 0.68f + 0.10f).coerceIn(0.22f, 0.55f),
+        value = (hsv[2] * 0.86f + 0.04f).coerceIn(0.62f, 0.86f)
     )
-    val innerRing = hsvColor(
-        hue = glowHue,
-        saturation = (hsv[1] * 1.02f + 0.12f).coerceIn(0.5f, 0.9f),
-        value = (hsv[2] * 0.45f).coerceIn(0.3f, 0.56f)
+    val mid = hsvColor(
+        hue = hue,
+        saturation = (hsv[1] * 0.72f + 0.12f).coerceIn(0.26f, 0.58f),
+        value = (hsv[2] * 0.58f).coerceIn(0.42f, 0.62f)
     )
-    val coreGlow = hsvColor(
-        hue = glowHue,
-        saturation = (hsv[1] * 1.1f + 0.08f).coerceIn(0.55f, 0.94f),
-        value = (hsv[2] + 0.16f).coerceIn(0.72f, 0.98f)
-    )
-    val hotspot = hsvColor(
-        hue = glowHue,
-        saturation = (hsv[1] * 0.86f + 0.06f).coerceIn(0.35f, 0.72f),
-        value = (hsv[2] + 0.28f).coerceIn(0.84f, 1f)
+    val edge = hsvColor(
+        hue = hue,
+        saturation = (hsv[1] * 0.80f + 0.14f).coerceIn(0.30f, 0.64f),
+        value = (hsv[2] * 0.34f).coerceIn(0.24f, 0.42f)
     )
 
     return Brush.radialGradient(
         colorStops = arrayOf(
-            0.0f to hotspot,
-            0.28f to coreGlow,
-            0.56f to innerRing,
-            1.0f to outer
+            0.0f to center,
+            0.62f to mid,
+            1.0f to edge
         )
     )
 }
 
 private fun hsvColor(hue: Float, saturation: Float, value: Float): Color {
     return Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, value)))
-}
-
-private fun blendHue(from: Float, to: Float, ratio: Float): Float {
-    val diff = ((to - from + 540f) % 360f) - 180f
-    return (from + diff * ratio + 360f) % 360f
 }
 
 private fun adaptiveFontSize(text: String) = when {
