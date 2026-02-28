@@ -89,12 +89,20 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     var importState by remember { mutableStateOf<ImportState>(ImportState.Idle) }
     var services by remember { mutableStateOf(emptyList<DiscoveredService>()) }
     var manualAddress by remember { mutableStateOf("") }
+    var shuffleMode by remember { mutableStateOf(false) }
+    var textScale by remember { mutableStateOf(TextScaleOption.Medium) }
+    var noteOrder by remember { mutableStateOf(notes.indices.toList()) }
+
+    fun reorderNotes() {
+        noteOrder = if (shuffleMode) notes.indices.shuffled() else notes.indices.toList()
+        selectedIndex = 0
+        showBack = false
+    }
 
     fun onImported(imported: List<StickyNote>) {
         notes.clear()
         notes.addAll(imported)
-        selectedIndex = 0
-        showBack = false
+        reorderNotes()
         importState = ImportState.Imported(imported.size)
     }
 
@@ -126,6 +134,8 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         }
     }
 
+    val orderedNotes = noteOrder.mapNotNull { index -> notes.getOrNull(index) }
+
     when (val state = importState) {
         ImportState.Searching,
         is ImportState.DeviceList,
@@ -155,7 +165,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
         ImportState.Idle -> {
             NotesScreen(
-                notes = notes,
+                notes = orderedNotes,
                 selectedIndex = selectedIndex,
                 showBack = showBack,
                 rotaryAccumulator = rotaryAccumulator,
@@ -165,7 +175,14 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                     showBack = false
                 },
                 onFlip = { showBack = !showBack },
-                onImportFromPhone = { startDiscovery() }
+                onImportFromPhone = { startDiscovery() },
+                shuffleMode = shuffleMode,
+                onToggleShuffle = {
+                    shuffleMode = !shuffleMode
+                    reorderNotes()
+                },
+                textScale = textScale,
+                onTextScaleChange = { textScale = it }
             )
         }
     }
@@ -266,9 +283,15 @@ private fun NotesScreen(
     onRotaryAccumulatorChange: (Float) -> Unit,
     onSelectedIndexChange: (Int) -> Unit,
     onFlip: () -> Unit,
-    onImportFromPhone: () -> Unit
+    onImportFromPhone: () -> Unit,
+    shuffleMode: Boolean,
+    onToggleShuffle: () -> Unit,
+    textScale: TextScaleOption,
+    onTextScaleChange: (TextScaleOption) -> Unit
 ) {
     var horizontalDragSum by remember { mutableFloatStateOf(0f) }
+    var verticalDragSum by remember { mutableFloatStateOf(0f) }
+    var showTray by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (notes.isEmpty()) {
@@ -278,7 +301,8 @@ private fun NotesScreen(
             return@Box
         }
 
-        val note = notes[selectedIndex]
+        val safeIndex = selectedIndex.coerceIn(0, notes.lastIndex)
+        val note = notes[safeIndex]
         val text = if (showBack) note.back.text else note.front.text
         val label = if (showBack) note.back.label else note.front.label
 
@@ -289,35 +313,42 @@ private fun NotesScreen(
                     var updated = rotaryAccumulator + it.verticalScrollPixels
                     when {
                         updated > 25f -> {
-                            onSelectedIndexChange((selectedIndex + 1).coerceAtMost(notes.lastIndex))
+                            onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex))
                             updated = 0f
                         }
 
                         updated < -25f -> {
-                            onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
+                            onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0))
                             updated = 0f
                         }
                     }
                     onRotaryAccumulatorChange(updated)
                     true
                 }
-                .pointerInput(selectedIndex, notes.size) {
+                .pointerInput(safeIndex, notes.size) {
                     detectHorizontalDragGestures(
-                        onHorizontalDrag = { _, dragAmount ->
-                            horizontalDragSum += dragAmount
-                        },
+                        onHorizontalDrag = { _, dragAmount -> horizontalDragSum += dragAmount },
                         onDragEnd = {
                             when {
-                                horizontalDragSum > 36f -> {
-                                    onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
-                                }
-                                horizontalDragSum < -36f -> {
-                                    onSelectedIndexChange((selectedIndex + 1).coerceAtMost(notes.lastIndex))
-                                }
+                                horizontalDragSum > 36f -> onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0))
+                                horizontalDragSum < -36f -> onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex))
                             }
                             horizontalDragSum = 0f
                         },
                         onDragCancel = { horizontalDragSum = 0f }
+                    )
+                }
+                .pointerInput(showTray) {
+                    detectVerticalDragGestures(
+                        onVerticalDrag = { _, dragAmount -> verticalDragSum += dragAmount },
+                        onDragEnd = {
+                            when {
+                                verticalDragSum < -28f -> showTray = true
+                                verticalDragSum > 28f -> showTray = false
+                            }
+                            verticalDragSum = 0f
+                        },
+                        onDragCancel = { verticalDragSum = 0f }
                     )
                 }
                 .padding(8.dp)
@@ -328,7 +359,7 @@ private fun NotesScreen(
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "${selectedIndex + 1}/${notes.size} • ${label}",
+                    text = "${safeIndex + 1}/${notes.size} • ${label}",
                     fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.86f),
                     textAlign = TextAlign.Center,
@@ -337,24 +368,62 @@ private fun NotesScreen(
                 Text(
                     text = text,
                     color = Color.White,
-                    fontSize = adaptiveFontSize(text),
-                    lineHeight = adaptiveFontSize(text) * 1.2,
+                    fontSize = adaptiveFontSize(text) * textScale.factor,
+                    lineHeight = adaptiveFontSize(text) * (1.2 * textScale.factor),
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
             }
         }
 
-        Button(
-            onClick = onImportFromPhone,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0x88000000)),
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 8.dp, end = 8.dp)
-        ) {
-            Text("Phone")
+        if (showTray) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.28f))
+                    .clickable { showTray = false }
+            )
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xDD101418))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Button(onClick = {
+                    showTray = false
+                    onImportFromPhone()
+                }) { Text("Import notes") }
+
+                Button(onClick = onToggleShuffle) {
+                    Text(if (shuffleMode) "Shuffle: On" else "Shuffle: Off")
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextScaleOption.entries.forEach { option ->
+                        Button(
+                            onClick = { onTextScaleChange(option) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (option == textScale) Color(0xFF2D6EEA) else Color(0xFF2D2D2D)
+                            )
+                        ) {
+                            Text(option.label)
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+private enum class TextScaleOption(val label: String, val factor: Float) {
+    Small("Small", 0.86f),
+    Medium("Medium", 1.0f),
+    Large("Large", 1.16f)
 }
 
 private sealed interface ImportState {
