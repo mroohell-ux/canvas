@@ -23,9 +23,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -434,7 +436,7 @@ private fun NotesScreen(
             ) {
                 val density = LocalDensity.current
                 val textMeasurer = rememberTextMeasurer()
-                val horizontalPadding = 12.dp
+                val horizontalPadding = 18.dp
                 val headerReserved = 30.dp
                 val baseFontSize = adaptiveFontSize(text) * textScale.factor
 
@@ -480,7 +482,7 @@ private fun NotesScreen(
                         verticalArrangement = Arrangement.Top,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = headerReserved, bottom = 36.dp)
+                            .padding(top = headerReserved, bottom = 56.dp)
                             .verticalScroll(noteScrollState)
                     ) {
                         Text(
@@ -489,14 +491,15 @@ private fun NotesScreen(
                             fontSize = effectiveFontSize,
                             lineHeight = effectiveLineHeight,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = horizontalPadding + 6.dp)
+                            modifier = Modifier.padding(horizontal = horizontalPadding)
                         )
+                        Spacer(modifier = Modifier.height(42.dp))
                     }
                 } else {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = 26.dp, bottom = 28.dp),
+                            .padding(top = 26.dp, bottom = 34.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -505,7 +508,7 @@ private fun NotesScreen(
                             fontSize = effectiveFontSize,
                             lineHeight = effectiveLineHeight,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = horizontalPadding + 6.dp)
+                            modifier = Modifier.padding(horizontal = horizontalPadding)
                         )
                     }
                 }
