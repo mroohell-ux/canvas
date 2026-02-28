@@ -443,10 +443,21 @@ private fun NotesScreen(
                 val horizontalPadding = 22.dp
                 val headerReserved = 30.dp
                 val baseFontSize = adaptiveFontSize(text) * textScale.factor
+// These match your real layout
+                val outerVerticalPadding = 14.dp          // from BoxWithConstraints padding(vertical = 14.dp)
+                val contentTopPadding = 26.dp            // from non-scroll Box padding(top = 26.dp)
+                val contentBottomPadding = 34.dp         // from non-scroll Box padding(bottom = 34.dp)
 
                 val maxWidthPx = with(density) { (maxWidth - (horizontalPadding * 2)).toPx().roundToInt().coerceAtLeast(1) }
-                val maxHeightPx = with(density) { (maxHeight - headerReserved).toPx().roundToInt().coerceAtLeast(1) }
-
+                //val maxHeightPx = with(density) { (maxHeight - headerReserved).toPx().roundToInt().coerceAtLeast(1) }
+                val maxHeightPx = with(density) {
+                    (maxHeight
+                            - outerVerticalPadding * 2
+                            - headerReserved
+                            - contentTopPadding
+                            - contentBottomPadding
+                            ).toPx().roundToInt().coerceAtLeast(1)
+                }
                 fun fitsOnSingleScreen(fontSize: TextUnit): Boolean {
                     val layout = textMeasurer.measure(
                         text = AnnotatedString(text),
@@ -467,9 +478,10 @@ private fun NotesScreen(
                     baseFontSize
                 }
                 val effectiveFontSize = clampToMaxNoteFont(effectiveFontSizeRaw)
+                val needsScroll = !fitsOnSingleScreen(effectiveFontSize)
                 val effectiveLineHeight = effectiveFontSize * 1.2
-                val useScrollableTopLayout = !fitsAtSelectedSize
-
+                //val useScrollableTopLayout = !fitsAtSelectedSize
+                val useScrollableTopLayout = needsScroll
                 Text(
                     text = "${safeIndex + 1}/${notes.size} • ${label}",
                     fontSize = 12.sp,
@@ -487,7 +499,7 @@ private fun NotesScreen(
                             verticalArrangement = Arrangement.Top,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(top = headerReserved, bottom = 84.dp)
+                                .padding(top = headerReserved, bottom = 16.dp)
                                 .verticalScroll(noteScrollState)
                         ) {
                             Text(
@@ -498,14 +510,15 @@ private fun NotesScreen(
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(horizontal = horizontalPadding)
                             )
-                            Spacer(modifier = Modifier.height(80.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                         }
                     }
                 } else {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = 26.dp, bottom = 34.dp),
+                            .padding(top = 20.dp, bottom = 20.dp),
+                            //.padding(top = 26.dp, bottom = 34.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -751,7 +764,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         color = "#34C79A",
         rotation = -2.5,
         front = NoteSide(label = "front", text = "Drink water before breakfast"),
-        back = NoteSide(label = "back", text = "Finish about 500ml water before your first coffee so your energy is steadier through the morning.")
+        back = NoteSide(label = "back", text = "Finish about 500ml water before your first coffee so your energy is steadier through the morning.Finish about 500ml water before your first coffee so your energy is steadier through the morning.Finish about 500ml water before your first coffee so your energy is steadier through the morning.Finish about 500ml water before your first coffee so your energy is steadier through the morning.")
     ),
     StickyNote(
         id = 102,
