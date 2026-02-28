@@ -4,7 +4,7 @@ Wear OS app for Samsung Galaxy Watch / Wear OS that imports sticky notes **from 
 
 ## What it does
 
-- Shows built-in sample notes at startup.
+- Shows built-in sample notes at startup (including longer entries for scrolling/typography testing).
 - On note detail, **double-tap** any note to open/close the actions tray with smooth slide/fade animation; tap outside to dismiss.
 - Import flow states:
   - Searching

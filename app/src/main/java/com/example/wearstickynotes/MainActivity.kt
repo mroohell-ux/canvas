@@ -672,6 +672,39 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         rotation = -0.3,
         front = NoteSide(label = "front", text = "Review 5 new phrases"),
         back = NoteSide(label = "back", text = "Read each phrase out loud twice, then use it in a short sentence. Active recall beats passive rereading.")
+    ),
+    StickyNote(
+        id = 106,
+        flowId = 5,
+        flowName = "Career",
+        cardId = 51,
+        cardTitle = "Weekly Planning",
+        color = "#4AA3A1",
+        rotation = 0.8,
+        front = NoteSide(label = "front", text = "Define top 3 outcomes"),
+        back = NoteSide(label = "back", text = "Before Monday starts, define the top three outcomes for the week and translate each outcome into one concrete action you can finish in under one hour.")
+    ),
+    StickyNote(
+        id = 107,
+        flowId = 5,
+        flowName = "Career",
+        cardId = 52,
+        cardTitle = "Communication",
+        color = "#6A89FF",
+        rotation = -0.7,
+        front = NoteSide(label = "front", text = "Write clearer updates"),
+        back = NoteSide(label = "back", text = "When posting an update, include context, current status, blockers, and the next step with an owner, so teammates can respond quickly without back-and-forth questions.")
+    ),
+    StickyNote(
+        id = 108,
+        flowId = 6,
+        flowName = "Mindset",
+        cardId = 61,
+        cardTitle = "Evening Reflection",
+        color = "#A06BE5",
+        rotation = 0.4,
+        front = NoteSide(label = "front", text = "Reflect in three lines"),
+        back = NoteSide(label = "back", text = "At night, write three short lines: one win from today, one lesson you learned, and one tiny improvement for tomorrow. This keeps progress visible and sustainable.")
     )
 )
 
