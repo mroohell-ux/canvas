@@ -37,7 +37,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -297,7 +299,7 @@ private fun NotesScreen(
                 }
                 .padding(8.dp)
                 .clip(RoundedCornerShape(999.dp))
-                .background(parseColor(note.color))
+                .background(noteRadialGradient(note))
                 .clickable { onFlip() },
             contentAlignment = Alignment.Center
         ) {
@@ -305,13 +307,13 @@ private fun NotesScreen(
                 Text(
                     text = "${selectedIndex + 1}/${notes.size} • ${label}",
                     fontSize = 12.sp,
-                    color = Color.Black.copy(alpha = 0.7f),
+                    color = Color.White.copy(alpha = 0.86f),
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(bottom = 6.dp)
                 )
                 Text(
                     text = text,
-                    color = Color.Black,
+                    color = Color.White,
                     fontSize = adaptiveFontSize(text),
                     lineHeight = adaptiveFontSize(text) * 1.2,
                     textAlign = TextAlign.Center,
@@ -510,11 +512,48 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
     )
 )
 
-private fun parseColor(value: String): Color {
+private fun parseBaseColor(value: String): Color {
     val normalized = if (value.length == 7) "#FF${value.removePrefix("#")}" else value
     return runCatching {
         Color(android.graphics.Color.parseColor(normalized))
-    }.getOrDefault(Color(0xFFFFF8A6))
+    }.getOrDefault(Color(0xFFD7E8FF))
+}
+
+private fun noteRadialGradient(note: StickyNote): Brush {
+    val base = parseBaseColor(note.color)
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(base.toArgb(), hsv)
+
+    val hueTargets = floatArrayOf(160f, 168f, 176f, 184f, 152f, 190f)
+    val variantIndex = ((note.id % hueTargets.size.toLong()).toInt() + hueTargets.size) % hueTargets.size
+    val centerHue = blendHue(hsv[0], hueTargets[variantIndex], 0.35f)
+
+    val center = hsvColor(
+        hue = centerHue,
+        saturation = (hsv[1] * 1.08f + 0.1f).coerceIn(0.55f, 0.9f),
+        value = (hsv[2] + 0.18f).coerceIn(0.78f, 1f)
+    )
+    val mid = hsvColor(
+        hue = centerHue,
+        saturation = (hsv[1] * 0.95f + 0.08f).coerceIn(0.5f, 0.85f),
+        value = (hsv[2] * 0.64f).coerceIn(0.46f, 0.72f)
+    )
+    val edge = hsvColor(
+        hue = centerHue,
+        saturation = (hsv[1] * 0.9f + 0.1f).coerceIn(0.45f, 0.82f),
+        value = (center.red.coerceAtLeast(center.green).coerceAtLeast(center.blue) * 0.42f).coerceIn(0.25f, 0.5f)
+    )
+
+    return Brush.radialGradient(colors = listOf(center, mid, edge))
+}
+
+private fun hsvColor(hue: Float, saturation: Float, value: Float): Color {
+    return Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, value)))
+}
+
+private fun blendHue(from: Float, to: Float, ratio: Float): Float {
+    val diff = ((to - from + 540f) % 360f) - 180f
+    return (from + diff * ratio + 360f) % 360f
 }
 
 private fun adaptiveFontSize(text: String) = when {
