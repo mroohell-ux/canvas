@@ -65,7 +65,6 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.roundToPx
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +82,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.roundToInt
 import kotlin.coroutines.resume
 
 class MainActivity : ComponentActivity() {
@@ -405,8 +405,8 @@ private fun NotesScreen(
                 val headerReserved = 30.dp
                 val baseFontSize = adaptiveFontSize(text) * textScale.factor
 
-                val maxWidthPx = with(density) { (maxWidth - (horizontalPadding * 2)).roundToPx().coerceAtLeast(1) }
-                val maxHeightPx = with(density) { (maxHeight - headerReserved).roundToPx().coerceAtLeast(1) }
+                val maxWidthPx = with(density) { (maxWidth - (horizontalPadding * 2)).toPx().roundToInt().coerceAtLeast(1) }
+                val maxHeightPx = with(density) { (maxHeight - headerReserved).toPx().roundToInt().coerceAtLeast(1) }
 
                 fun fitsOnSingleScreen(fontSize: TextUnit): Boolean {
                     val layout = textMeasurer.measure(
@@ -418,7 +418,7 @@ private fun NotesScreen(
                 }
 
                 val fitsAtSelectedSize = fitsOnSingleScreen(baseFontSize)
-                val effectiveFontSize = if (fitsAtSelectedSize) {
+                val effectiveFontSizeRaw = if (fitsAtSelectedSize) {
                     listOf(1.30f, 1.22f, 1.16f, 1.10f, 1.06f, 1.0f)
                         .firstNotNullOfOrNull { factor ->
                             val candidate = baseFontSize * factor
@@ -427,6 +427,7 @@ private fun NotesScreen(
                 } else {
                     baseFontSize
                 }
+                val effectiveFontSize = clampToMaxNoteFont(effectiveFontSizeRaw)
                 val effectiveLineHeight = effectiveFontSize * 1.2
                 val useScrollableTopLayout = !fitsAtSelectedSize
 
@@ -822,6 +823,11 @@ private fun noteRadialGradient(note: StickyNote): Brush {
 
 private fun hsvColor(hue: Float, saturation: Float, value: Float): Color {
     return Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, value)))
+}
+
+private fun clampToMaxNoteFont(fontSize: TextUnit): TextUnit {
+    val maxFontSize = 24.sp
+    return if (fontSize.value > maxFontSize.value) maxFontSize else fontSize
 }
 
 private fun adaptiveFontSize(text: String) = when {
