@@ -7,6 +7,13 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -293,6 +300,11 @@ private fun NotesScreen(
     var horizontalDragSum by remember { mutableFloatStateOf(0f) }
     var verticalDragSum by remember { mutableFloatStateOf(0f) }
     var showTray by remember { mutableStateOf(false) }
+    val trayScrimAlpha by animateFloatAsState(
+        targetValue = if (showTray) 0.30f else 0f,
+        animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
+        label = "trayScrimAlpha"
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (notes.isEmpty()) {
@@ -377,18 +389,25 @@ private fun NotesScreen(
             }
         }
 
-        if (showTray) {
+        if (trayScrimAlpha > 0.001f) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.28f))
+                    .background(Color.Black.copy(alpha = trayScrimAlpha))
                     .clickable { showTray = false }
             )
+        }
 
+        AnimatedVisibility(
+            visible = showTray,
+            enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(8.dp)
+        ) {
             Column(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(8.dp)
                     .clip(RoundedCornerShape(18.dp))
                     .background(Color(0xDD101418))
                     .padding(10.dp),
@@ -422,6 +441,7 @@ private fun NotesScreen(
 }
 
 private enum class TextScaleOption(val label: String, val factor: Float) {
+    ExtraSmall("XS", 0.74f),
     Small("Small", 0.86f),
     Medium("Medium", 1.0f),
     Large("Large", 1.16f)
