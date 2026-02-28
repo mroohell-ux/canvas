@@ -17,7 +17,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -305,8 +305,8 @@ private fun NotesScreen(
     onTextScaleChange: (TextScaleOption) -> Unit
 ) {
     var horizontalDragSum by remember { mutableFloatStateOf(0f) }
-    var verticalDragSum by remember { mutableFloatStateOf(0f) }
     var showTray by remember { mutableStateOf(false) }
+    val noteScrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
     val trayScrimAlpha by animateFloatAsState(
         targetValue = if (showTray) 0.30f else 0f,
@@ -367,26 +367,28 @@ private fun NotesScreen(
                         onDragCancel = { horizontalDragSum = 0f }
                     )
                 }
-                .pointerInput(showTray) {
-                    detectVerticalDragGestures(
-                        onVerticalDrag = { _, dragAmount -> verticalDragSum += dragAmount },
-                        onDragEnd = {
-                            when {
-                                verticalDragSum < -28f -> showTray = true
-                                verticalDragSum > 28f -> showTray = false
+                .pointerInput(note.id, showTray) {
+                    detectTapGestures(
+                        onDoubleTap = { showTray = !showTray },
+                        onTap = {
+                            if (!showTray) {
+                                onFlip(note.id)
                             }
-                            verticalDragSum = 0f
-                        },
-                        onDragCancel = { verticalDragSum = 0f }
+                        }
                     )
                 }
                 .padding(8.dp)
                 .clip(RoundedCornerShape(999.dp))
-                .background(noteRadialGradient(note))
-                .clickable { onFlip(note.id) },
+                .background(noteRadialGradient(note)),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(noteScrollState)
+                    .padding(vertical = 14.dp)
+            ) {
                 Text(
                     text = "${safeIndex + 1}/${notes.size} • ${label}",
                     fontSize = 12.sp,
