@@ -15,7 +15,7 @@ Wear OS app for Samsung Galaxy Watch / Wear OS that imports sticky notes **from 
   - Imported / Failed
 - Supports manual fallback: enter `IP:port` if discovery fails.
 - Notes are browsed with rotary bezel/crown or swipe left/right; tap a note to flip front/back.
-- Tray actions: Import notes, Shuffle mode toggle, and text size (XS/Small/Medium/Large).
+- Tray actions: Import notes, Shuffle mode toggle, and text size (XS/S/L).
 - Note backgrounds use calm, premium radial gradients with soft centers and deep vignette edges derived from each note base color.
 
 ## Phone server protocol expected by watch

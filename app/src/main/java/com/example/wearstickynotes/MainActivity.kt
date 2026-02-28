@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -92,24 +93,24 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     }
 
     var selectedIndex by remember { mutableIntStateOf(0) }
-    var showBack by remember { mutableStateOf(false) }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     var importState by remember { mutableStateOf<ImportState>(ImportState.Idle) }
     var services by remember { mutableStateOf(emptyList<DiscoveredService>()) }
     var manualAddress by remember { mutableStateOf("") }
     var shuffleMode by remember { mutableStateOf(false) }
-    var textScale by remember { mutableStateOf(TextScaleOption.Medium) }
+    var textScale by remember { mutableStateOf(TextScaleOption.Small) }
     var noteOrder by remember { mutableStateOf(notes.indices.toList()) }
+    val noteSideState = remember { mutableStateMapOf<Long, Boolean>() }
 
     fun reorderNotes() {
         noteOrder = if (shuffleMode) notes.indices.shuffled() else notes.indices.toList()
         selectedIndex = 0
-        showBack = false
     }
 
     fun onImported(imported: List<StickyNote>) {
         notes.clear()
         notes.addAll(imported)
+        noteSideState.clear()
         reorderNotes()
         importState = ImportState.Imported(imported.size)
     }
@@ -143,6 +144,8 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     }
 
     val orderedNotes = noteOrder.mapNotNull { index -> notes.getOrNull(index) }
+    val currentNote = orderedNotes.getOrNull(selectedIndex)
+    val showBack = currentNote?.let { noteSideState[it.id] ?: false } ?: false
 
     when (val state = importState) {
         ImportState.Searching,
@@ -178,11 +181,11 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                 showBack = showBack,
                 rotaryAccumulator = rotaryAccumulator,
                 onRotaryAccumulatorChange = { rotaryAccumulator = it },
-                onSelectedIndexChange = {
-                    selectedIndex = it
-                    showBack = false
+                onSelectedIndexChange = { selectedIndex = it },
+                onFlip = { noteId ->
+                    val current = noteSideState[noteId] ?: false
+                    noteSideState[noteId] = !current
                 },
-                onFlip = { showBack = !showBack },
                 onImportFromPhone = { startDiscovery() },
                 shuffleMode = shuffleMode,
                 onToggleShuffle = {
@@ -290,7 +293,7 @@ private fun NotesScreen(
     rotaryAccumulator: Float,
     onRotaryAccumulatorChange: (Float) -> Unit,
     onSelectedIndexChange: (Int) -> Unit,
-    onFlip: () -> Unit,
+    onFlip: (Long) -> Unit,
     onImportFromPhone: () -> Unit,
     shuffleMode: Boolean,
     onToggleShuffle: () -> Unit,
@@ -367,7 +370,7 @@ private fun NotesScreen(
                 .padding(8.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(noteRadialGradient(note))
-                .clickable { onFlip() },
+                .clickable { onFlip(note.id) },
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -442,9 +445,8 @@ private fun NotesScreen(
 
 private enum class TextScaleOption(val label: String, val factor: Float) {
     ExtraSmall("XS", 0.74f),
-    Small("Small", 0.86f),
-    Medium("Medium", 1.0f),
-    Large("Large", 1.16f)
+    Small("S", 0.86f),
+    Large("L", 1.16f)
 }
 
 private sealed interface ImportState {
