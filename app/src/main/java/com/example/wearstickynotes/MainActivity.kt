@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -266,6 +268,8 @@ private fun NotesScreen(
     onFlip: () -> Unit,
     onImportFromPhone: () -> Unit
 ) {
+    var horizontalDragSum by remember { mutableFloatStateOf(0f) }
+
     Box(modifier = Modifier.fillMaxSize()) {
         if (notes.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -296,6 +300,25 @@ private fun NotesScreen(
                     }
                     onRotaryAccumulatorChange(updated)
                     true
+                }
+                .pointerInput(selectedIndex, notes.size) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { _, dragAmount ->
+                            horizontalDragSum += dragAmount
+                        },
+                        onDragEnd = {
+                            when {
+                                horizontalDragSum > 36f -> {
+                                    onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
+                                }
+                                horizontalDragSum < -36f -> {
+                                    onSelectedIndexChange((selectedIndex + 1).coerceAtMost(notes.lastIndex))
+                                }
+                            }
+                            horizontalDragSum = 0f
+                        },
+                        onDragCancel = { horizontalDragSum = 0f }
+                    )
                 }
                 .padding(8.dp)
                 .clip(RoundedCornerShape(999.dp))
@@ -494,21 +517,54 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         flowName = "Daily",
         cardId = 11,
         cardTitle = "Morning Plan",
-        color = "#FFF8A6",
+        color = "#34C79A",
         rotation = -2.5,
-        front = NoteSide(label = "front", text = "Drink water"),
-        back = NoteSide(label = "back", text = "500ml before breakfast")
+        front = NoteSide(label = "front", text = "Drink water before breakfast"),
+        back = NoteSide(label = "back", text = "Finish about 500ml water before your first coffee so your energy is steadier through the morning.")
     ),
     StickyNote(
         id = 102,
         flowId = 1,
         flowName = "Daily",
-        cardId = 11,
-        cardTitle = "Morning Plan",
-        color = "#D7E8FF",
+        cardId = 12,
+        cardTitle = "Mobility",
+        color = "#2F86FF",
         rotation = 1.0,
-        front = NoteSide(label = "front", text = "Stretch 10 min"),
-        back = NoteSide(label = "back", text = "Neck + hamstrings")
+        front = NoteSide(label = "front", text = "10-minute stretch reset"),
+        back = NoteSide(label = "back", text = "Slowly stretch your neck, shoulders, hamstrings, and calves for ten minutes to reduce stiffness after sitting.")
+    ),
+    StickyNote(
+        id = 103,
+        flowId = 2,
+        flowName = "Focus",
+        cardId = 21,
+        cardTitle = "Deep Work",
+        color = "#8A7CFF",
+        rotation = -1.0,
+        front = NoteSide(label = "front", text = "Start one focused block"),
+        back = NoteSide(label = "back", text = "Put your phone away and do one uninterrupted 25-minute block. Tiny wins build momentum faster than waiting for motivation.")
+    ),
+    StickyNote(
+        id = 104,
+        flowId = 3,
+        flowName = "Health",
+        cardId = 31,
+        cardTitle = "Bedtime",
+        color = "#3EBE76",
+        rotation = 0.5,
+        front = NoteSide(label = "front", text = "Sleep window tonight"),
+        back = NoteSide(label = "back", text = "Try to go to sleep between 10:30 PM and 11:00 PM. Keep lights dim 30 minutes before bed to help melatonin rise.")
+    ),
+    StickyNote(
+        id = 105,
+        flowId = 4,
+        flowName = "Learning",
+        cardId = 41,
+        cardTitle = "Language",
+        color = "#E07A2E",
+        rotation = -0.3,
+        front = NoteSide(label = "front", text = "Review 5 new phrases"),
+        back = NoteSide(label = "back", text = "Read each phrase out loud twice, then use it in a short sentence. Active recall beats passive rereading.")
     )
 )
 
@@ -524,27 +580,39 @@ private fun noteRadialGradient(note: StickyNote): Brush {
     val hsv = FloatArray(3)
     android.graphics.Color.colorToHSV(base.toArgb(), hsv)
 
-    val hueTargets = floatArrayOf(160f, 168f, 176f, 184f, 152f, 190f)
-    val variantIndex = ((note.id % hueTargets.size.toLong()).toInt() + hueTargets.size) % hueTargets.size
-    val centerHue = blendHue(hsv[0], hueTargets[variantIndex], 0.35f)
+    val glowTargets = floatArrayOf(152f, 165f, 174f, 182f, 190f, 160f)
+    val variantIndex = ((note.id % glowTargets.size.toLong()).toInt() + glowTargets.size) % glowTargets.size
+    val glowHue = blendHue(hsv[0], glowTargets[variantIndex], 0.22f)
 
-    val center = hsvColor(
-        hue = centerHue,
-        saturation = (hsv[1] * 1.08f + 0.1f).coerceIn(0.55f, 0.9f),
-        value = (hsv[2] + 0.18f).coerceIn(0.78f, 1f)
+    val outer = hsvColor(
+        hue = glowHue,
+        saturation = (hsv[1] * 0.95f + 0.12f).coerceIn(0.42f, 0.82f),
+        value = (hsv[2] * 0.22f).coerceIn(0.12f, 0.28f)
     )
-    val mid = hsvColor(
-        hue = centerHue,
-        saturation = (hsv[1] * 0.95f + 0.08f).coerceIn(0.5f, 0.85f),
-        value = (hsv[2] * 0.64f).coerceIn(0.46f, 0.72f)
+    val innerRing = hsvColor(
+        hue = glowHue,
+        saturation = (hsv[1] * 1.02f + 0.12f).coerceIn(0.5f, 0.9f),
+        value = (hsv[2] * 0.45f).coerceIn(0.3f, 0.56f)
     )
-    val edge = hsvColor(
-        hue = centerHue,
-        saturation = (hsv[1] * 0.9f + 0.1f).coerceIn(0.45f, 0.82f),
-        value = (center.red.coerceAtLeast(center.green).coerceAtLeast(center.blue) * 0.42f).coerceIn(0.25f, 0.5f)
+    val coreGlow = hsvColor(
+        hue = glowHue,
+        saturation = (hsv[1] * 1.1f + 0.08f).coerceIn(0.55f, 0.94f),
+        value = (hsv[2] + 0.16f).coerceIn(0.72f, 0.98f)
+    )
+    val hotspot = hsvColor(
+        hue = glowHue,
+        saturation = (hsv[1] * 0.86f + 0.06f).coerceIn(0.35f, 0.72f),
+        value = (hsv[2] + 0.28f).coerceIn(0.84f, 1f)
     )
 
-    return Brush.radialGradient(colors = listOf(center, mid, edge))
+    return Brush.radialGradient(
+        colorStops = arrayOf(
+            0.0f to hotspot,
+            0.28f to coreGlow,
+            0.56f to innerRing,
+            1.0f to outer
+        )
+    )
 }
 
 private fun hsvColor(hue: Float, saturation: Float, value: Float): Color {
