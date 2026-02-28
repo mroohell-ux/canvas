@@ -109,14 +109,40 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     var importState by remember { mutableStateOf<ImportState>(ImportState.Idle) }
     var services by remember { mutableStateOf(emptyList<DiscoveredService>()) }
     var manualAddress by remember { mutableStateOf("") }
-    var shuffleMode by remember { mutableStateOf(false) }
-    var textScale by remember { mutableStateOf(TextScaleOption.Large) }
-    var noteOrder by remember { mutableStateOf(notes.indices.toList()) }
+
+    val prefs = remember(context) {
+        context.applicationContext.getSharedPreferences("sticky_prefs", Context.MODE_PRIVATE)
+    }
+    val initialShuffleMode = remember(prefs) {
+        prefs.getBoolean("shuffle_mode", false)
+    }
+    val initialTextScale = remember(prefs) {
+        TextScaleOption.fromStorage(
+            prefs.getString("text_scale", TextScaleOption.Large.storageKey)
+                ?: TextScaleOption.Large.storageKey
+        )
+    }
+
+    var shuffleMode by remember { mutableStateOf(initialShuffleMode) }
+    var textScale by remember { mutableStateOf(initialTextScale) }
+    var noteOrder by remember {
+        mutableStateOf(
+            if (initialShuffleMode) notes.indices.shuffled() else notes.indices.toList()
+        )
+    }
     val noteSideState = remember { mutableStateMapOf<Long, Boolean>() }
 
     fun reorderNotes() {
         noteOrder = if (shuffleMode) notes.indices.shuffled() else notes.indices.toList()
         selectedIndex = 0
+    }
+
+    LaunchedEffect(shuffleMode) {
+        prefs.edit().putBoolean("shuffle_mode", shuffleMode).apply()
+    }
+
+    LaunchedEffect(textScale) {
+        prefs.edit().putString("text_scale", textScale.storageKey).apply()
     }
 
     fun onImported(imported: List<StickyNote>) {
@@ -537,10 +563,20 @@ private fun NotesScreen(
     }
 }
 
-private enum class TextScaleOption(val label: String, val factor: Float) {
-    ExtraSmall("XS", 0.74f),
-    Small("S", 0.86f),
-    Large("L", 1.16f)
+private enum class TextScaleOption(
+    val label: String,
+    val factor: Float,
+    val storageKey: String
+) {
+    ExtraSmall("XS", 0.74f, "xs"),
+    Small("S", 0.86f, "s"),
+    Large("L", 1.16f, "l");
+
+    companion object {
+        fun fromStorage(value: String): TextScaleOption {
+            return entries.firstOrNull { it.storageKey == value } ?: Large
+        }
+    }
 }
 
 private sealed interface ImportState {

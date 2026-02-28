@@ -21,6 +21,7 @@ Wear OS app for Samsung Galaxy Watch / Wear OS that imports sticky notes **from 
 - Note position/side info (e.g., `1/8 • front`) is always pinned at the top.
 - Rotary/bezel input now requests focus on the note card; on emulator use the Wear crown/bezel controls (or swipe fallback).
 - Tray actions: Import notes, Shuffle mode toggle, and text size (XS/S/L).
+- Tray preferences (shuffle mode and text size) are persisted across app restarts.
 - Font auto-fit: starts from your chosen XS/S/L size; if that already fits one screen, it enlarges text to the largest size that still fits without scrolling.
 - Auto-fit font growth has an upper cap to avoid oversized text and keep the visual style consistent.
 - Default text scale starts at `L` to better fill the round screen, while XS/S/L remain available in tray.
