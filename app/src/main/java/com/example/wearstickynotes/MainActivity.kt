@@ -102,7 +102,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     var services by remember { mutableStateOf(emptyList<DiscoveredService>()) }
     var manualAddress by remember { mutableStateOf("") }
     var shuffleMode by remember { mutableStateOf(false) }
-    var textScale by remember { mutableStateOf(TextScaleOption.Small) }
+    var textScale by remember { mutableStateOf(TextScaleOption.Large) }
     var noteOrder by remember { mutableStateOf(notes.indices.toList()) }
     val noteSideState = remember { mutableStateMapOf<Long, Boolean>() }
 
@@ -332,7 +332,7 @@ private fun NotesScreen(
         val note = notes[safeIndex]
         val text = if (showBack) note.back.text else note.front.text
         val label = if (showBack) note.back.label else note.front.label
-        val preferTopAligned = text.length > 90
+        val preferTopAligned = text.length > 140
 
         LaunchedEffect(note.id, showBack, textScale) {
             noteScrollState.scrollTo(0)
@@ -787,11 +787,12 @@ private fun hsvColor(hue: Float, saturation: Float, value: Float): Color {
 }
 
 private fun adaptiveFontSize(text: String) = when {
-    text.length <= 6 -> 42.sp
-    text.length <= 16 -> 34.sp
-    text.length <= 32 -> 28.sp
-    text.length <= 56 -> 22.sp
-    else -> 18.sp
+    text.length <= 12 -> 42.sp
+    text.length <= 28 -> 34.sp
+    text.length <= 56 -> 28.sp
+    text.length <= 92 -> 24.sp
+    text.length <= 140 -> 20.sp
+    else -> 17.sp
 }
 
 @Serializable
