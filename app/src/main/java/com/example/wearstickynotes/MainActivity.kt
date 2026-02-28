@@ -387,18 +387,9 @@ private fun NotesScreen(
                 .background(noteRadialGradient(note)),
             contentAlignment = Alignment.Center
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = if (preferTopAligned) Arrangement.Top else Arrangement.Center,
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .let { base ->
-                        if (preferTopAligned) {
-                            base.verticalScroll(noteScrollState)
-                        } else {
-                            base
-                        }
-                    }
                     .padding(vertical = 14.dp)
             ) {
                 Text(
@@ -406,16 +397,46 @@ private fun NotesScreen(
                     fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.86f),
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 6.dp)
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 2.dp)
                 )
-                Text(
-                    text = text,
-                    color = Color.White,
-                    fontSize = adaptiveFontSize(text) * textScale.factor,
-                    lineHeight = adaptiveFontSize(text) * (1.2 * textScale.factor),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
+
+                if (preferTopAligned) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Top,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = 30.dp)
+                            .verticalScroll(noteScrollState)
+                    ) {
+                        Text(
+                            text = text,
+                            color = Color.White,
+                            fontSize = adaptiveFontSize(text) * textScale.factor,
+                            lineHeight = adaptiveFontSize(text) * (1.2 * textScale.factor),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = text,
+                            color = Color.White,
+                            fontSize = adaptiveFontSize(text) * textScale.factor,
+                            lineHeight = adaptiveFontSize(text) * (1.2 * textScale.factor),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+                }
             }
         }
 
