@@ -20,6 +20,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -57,8 +58,15 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.roundToPx
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -332,7 +340,6 @@ private fun NotesScreen(
         val note = notes[safeIndex]
         val text = if (showBack) note.back.text else note.front.text
         val label = if (showBack) note.back.label else note.front.label
-        val preferTopAligned = text.length > 140
 
         LaunchedEffect(note.id, showBack, textScale) {
             noteScrollState.scrollTo(0)
@@ -387,11 +394,42 @@ private fun NotesScreen(
                 .background(noteRadialGradient(note)),
             contentAlignment = Alignment.Center
         ) {
-            Box(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(vertical = 14.dp)
             ) {
+                val density = LocalDensity.current
+                val textMeasurer = rememberTextMeasurer()
+                val horizontalPadding = 12.dp
+                val headerReserved = 30.dp
+                val baseFontSize = adaptiveFontSize(text) * textScale.factor
+
+                val maxWidthPx = with(density) { (maxWidth - (horizontalPadding * 2)).roundToPx().coerceAtLeast(1) }
+                val maxHeightPx = with(density) { (maxHeight - headerReserved).roundToPx().coerceAtLeast(1) }
+
+                fun fitsOnSingleScreen(fontSize: TextUnit): Boolean {
+                    val layout = textMeasurer.measure(
+                        text = AnnotatedString(text),
+                        style = TextStyle(fontSize = fontSize, lineHeight = fontSize * 1.2),
+                        constraints = Constraints(maxWidth = maxWidthPx)
+                    )
+                    return layout.size.height <= maxHeightPx
+                }
+
+                val fitsAtSelectedSize = fitsOnSingleScreen(baseFontSize)
+                val effectiveFontSize = if (fitsAtSelectedSize) {
+                    listOf(1.30f, 1.22f, 1.16f, 1.10f, 1.06f, 1.0f)
+                        .firstNotNullOfOrNull { factor ->
+                            val candidate = baseFontSize * factor
+                            if (fitsOnSingleScreen(candidate)) candidate else null
+                        } ?: baseFontSize
+                } else {
+                    baseFontSize
+                }
+                val effectiveLineHeight = effectiveFontSize * 1.2
+                val useScrollableTopLayout = !fitsAtSelectedSize
+
                 Text(
                     text = "${safeIndex + 1}/${notes.size} • ${label}",
                     fontSize = 12.sp,
@@ -402,22 +440,22 @@ private fun NotesScreen(
                         .padding(top = 2.dp)
                 )
 
-                if (preferTopAligned) {
+                if (useScrollableTopLayout) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Top,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = 30.dp)
+                            .padding(top = headerReserved)
                             .verticalScroll(noteScrollState)
                     ) {
                         Text(
                             text = text,
                             color = Color.White,
-                            fontSize = adaptiveFontSize(text) * textScale.factor,
-                            lineHeight = adaptiveFontSize(text) * (1.2 * textScale.factor),
+                            fontSize = effectiveFontSize,
+                            lineHeight = effectiveLineHeight,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 12.dp)
+                            modifier = Modifier.padding(horizontal = horizontalPadding)
                         )
                     }
                 } else {
@@ -430,10 +468,10 @@ private fun NotesScreen(
                         Text(
                             text = text,
                             color = Color.White,
-                            fontSize = adaptiveFontSize(text) * textScale.factor,
-                            lineHeight = adaptiveFontSize(text) * (1.2 * textScale.factor),
+                            fontSize = effectiveFontSize,
+                            lineHeight = effectiveLineHeight,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 12.dp)
+                            modifier = Modifier.padding(horizontal = horizontalPadding)
                         )
                     }
                 }
