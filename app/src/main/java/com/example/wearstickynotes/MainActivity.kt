@@ -440,7 +440,7 @@ private fun NotesScreen(
             ) {
                 val density = LocalDensity.current
                 val textMeasurer = rememberTextMeasurer()
-                val horizontalPadding = 18.dp
+                val horizontalPadding = 22.dp
                 val headerReserved = 30.dp
                 val baseFontSize = adaptiveFontSize(text) * textScale.factor
 
@@ -487,7 +487,7 @@ private fun NotesScreen(
                             verticalArrangement = Arrangement.Top,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(top = headerReserved, bottom = 72.dp)
+                                .padding(top = headerReserved, bottom = 84.dp)
                                 .verticalScroll(noteScrollState)
                         ) {
                             Text(
@@ -498,7 +498,7 @@ private fun NotesScreen(
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(horizontal = horizontalPadding)
                             )
-                            Spacer(modifier = Modifier.height(64.dp))
+                            Spacer(modifier = Modifier.height(80.dp))
                         }
                     }
                 } else {
@@ -536,7 +536,7 @@ private fun NotesScreen(
             exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(8.dp)
+                .padding(start = 8.dp, end = 8.dp, bottom = 20.dp)
         ) {
             Column(
                 modifier = Modifier
