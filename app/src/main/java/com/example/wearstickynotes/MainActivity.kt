@@ -332,6 +332,11 @@ private fun NotesScreen(
         val note = notes[safeIndex]
         val text = if (showBack) note.back.text else note.front.text
         val label = if (showBack) note.back.label else note.front.label
+        val preferTopAligned = text.length > 90
+
+        LaunchedEffect(note.id, showBack, textScale) {
+            noteScrollState.scrollTo(0)
+        }
 
         Box(
             modifier = Modifier
@@ -384,9 +389,16 @@ private fun NotesScreen(
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = if (preferTopAligned) Arrangement.Top else Arrangement.Center,
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(noteScrollState)
+                    .let { base ->
+                        if (preferTopAligned) {
+                            base.verticalScroll(noteScrollState)
+                        } else {
+                            base
+                        }
+                    }
                     .padding(vertical = 14.dp)
             ) {
                 Text(
