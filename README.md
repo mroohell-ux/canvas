@@ -17,6 +17,7 @@ Wear OS app for Samsung Galaxy Watch / Wear OS that imports sticky notes **from 
 - Notes are browsed with rotary bezel/crown or swipe left/right; single tap flips front/back.
 - Swipe up/down on the note now scrolls long text content.
 - Note text is centered when content is short; long content switches to top-aligned scroll mode.
+- For very long text, vertical scroll is prioritized (to avoid clipping at the round bottom edge), with extra safe bottom padding.
 - Note position/side info (e.g., `1/8 • front`) is always pinned at the top.
 - Rotary/bezel input now requests focus on the note card; on emulator use the Wear crown/bezel controls (or swipe fallback).
 - Tray actions: Import notes, Shuffle mode toggle, and text size (XS/S/L).

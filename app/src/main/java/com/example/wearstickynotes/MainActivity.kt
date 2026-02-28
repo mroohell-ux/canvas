@@ -340,6 +340,7 @@ private fun NotesScreen(
         val note = notes[safeIndex]
         val text = if (showBack) note.back.text else note.front.text
         val label = if (showBack) note.back.label else note.front.label
+        val enableHorizontalSwipe = text.length < 140
 
         LaunchedEffect(note.id, showBack, textScale) {
             noteScrollState.scrollTo(0)
@@ -366,18 +367,24 @@ private fun NotesScreen(
                     onRotaryAccumulatorChange(updated)
                     true
                 }
-                .pointerInput(safeIndex, notes.size) {
-                    detectHorizontalDragGestures(
-                        onHorizontalDrag = { _, dragAmount -> horizontalDragSum += dragAmount },
-                        onDragEnd = {
-                            when {
-                                horizontalDragSum > 36f -> onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0))
-                                horizontalDragSum < -36f -> onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex))
-                            }
-                            horizontalDragSum = 0f
-                        },
-                        onDragCancel = { horizontalDragSum = 0f }
-                    )
+                .let { base ->
+                    if (enableHorizontalSwipe) {
+                        base.pointerInput(safeIndex, notes.size) {
+                            detectHorizontalDragGestures(
+                                onHorizontalDrag = { _, dragAmount -> horizontalDragSum += dragAmount },
+                                onDragEnd = {
+                                    when {
+                                        horizontalDragSum > 36f -> onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0))
+                                        horizontalDragSum < -36f -> onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex))
+                                    }
+                                    horizontalDragSum = 0f
+                                },
+                                onDragCancel = { horizontalDragSum = 0f }
+                            )
+                        }
+                    } else {
+                        base
+                    }
                 }
                 .pointerInput(note.id, showTray) {
                     detectTapGestures(
@@ -447,7 +454,7 @@ private fun NotesScreen(
                         verticalArrangement = Arrangement.Top,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = headerReserved)
+                            .padding(top = headerReserved, bottom = 36.dp)
                             .verticalScroll(noteScrollState)
                     ) {
                         Text(
@@ -456,14 +463,14 @@ private fun NotesScreen(
                             fontSize = effectiveFontSize,
                             lineHeight = effectiveLineHeight,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = horizontalPadding)
+                            modifier = Modifier.padding(horizontal = horizontalPadding + 6.dp)
                         )
                     }
                 } else {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = 24.dp),
+                            .padding(top = 26.dp, bottom = 28.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -472,7 +479,7 @@ private fun NotesScreen(
                             fontSize = effectiveFontSize,
                             lineHeight = effectiveLineHeight,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = horizontalPadding)
+                            modifier = Modifier.padding(horizontal = horizontalPadding + 6.dp)
                         )
                     }
                 }
