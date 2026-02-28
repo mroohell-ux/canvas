@@ -5,7 +5,7 @@ Wear OS app for Samsung Galaxy Watch / Wear OS that imports sticky notes **from 
 ## What it does
 
 - Shows built-in sample notes at startup.
-- Lets you tap **Import from phone**.
+- Import is opened from a small **Phone** action button in the top-right corner (keeps note text area clear).
 - Import flow states:
   - Searching
   - Device list

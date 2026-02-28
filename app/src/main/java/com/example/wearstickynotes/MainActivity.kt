@@ -264,69 +264,70 @@ private fun NotesScreen(
     onFlip: () -> Unit,
     onImportFromPhone: () -> Unit
 ) {
-    if (notes.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Button(onClick = onImportFromPhone) { Text("Import from phone") }
-        }
-        return
-    }
-
-    val note = notes[selectedIndex]
-    val text = if (showBack) note.back.text else note.front.text
-    val label = if (showBack) note.back.label else note.front.label
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .onRotaryScrollEvent {
-                var updated = rotaryAccumulator + it.verticalScrollPixels
-                when {
-                    updated > 25f -> {
-                        onSelectedIndexChange((selectedIndex + 1).coerceAtMost(notes.lastIndex))
-                        updated = 0f
-                    }
-
-                    updated < -25f -> {
-                        onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
-                        updated = 0f
-                    }
-                }
-                onRotaryAccumulatorChange(updated)
-                true
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (notes.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Button(onClick = onImportFromPhone) { Text("Import from phone") }
             }
-            .padding(8.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(parseColor(note.color))
-            .clickable { onFlip() },
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "${selectedIndex + 1}/${notes.size} • ${label}",
-                fontSize = 12.sp,
-                color = Color.Black.copy(alpha = 0.7f),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-            Text(
-                text = text,
-                color = Color.Black,
-                fontSize = adaptiveFontSize(text),
-                lineHeight = adaptiveFontSize(text) * 1.2,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 12.dp)
-            )
+            return@Box
+        }
+
+        val note = notes[selectedIndex]
+        val text = if (showBack) note.back.text else note.front.text
+        val label = if (showBack) note.back.label else note.front.label
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .onRotaryScrollEvent {
+                    var updated = rotaryAccumulator + it.verticalScrollPixels
+                    when {
+                        updated > 25f -> {
+                            onSelectedIndexChange((selectedIndex + 1).coerceAtMost(notes.lastIndex))
+                            updated = 0f
+                        }
+
+                        updated < -25f -> {
+                            onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
+                            updated = 0f
+                        }
+                    }
+                    onRotaryAccumulatorChange(updated)
+                    true
+                }
+                .padding(8.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(parseColor(note.color))
+                .clickable { onFlip() },
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "${selectedIndex + 1}/${notes.size} • ${label}",
+                    fontSize = 12.sp,
+                    color = Color.Black.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                Text(
+                    text = text,
+                    color = Color.Black,
+                    fontSize = adaptiveFontSize(text),
+                    lineHeight = adaptiveFontSize(text) * 1.2,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+            }
         }
 
         Button(
             onClick = onImportFromPhone,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0x66000000)),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0x88000000)),
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(10.dp)
+                .align(Alignment.TopEnd)
+                .padding(top = 8.dp, end = 8.dp)
         ) {
-            Text("Import from phone")
+            Text("Phone")
         }
     }
 }
