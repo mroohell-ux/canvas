@@ -70,6 +70,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
@@ -446,21 +447,14 @@ private fun CardFlowsScreen(
             return@Box
         }
 
-        val previous = flows.getOrNull(selectedIndex - 1)
-        val selected = flows[selectedIndex]
-        val next = flows.getOrNull(selectedIndex + 1)
-
-        val spacingPx = with(LocalDensity.current) { 84.dp.toPx() }
-        val previousOffset by animateFloatAsState((-spacingPx + dragOffset.value), spring(dampingRatio = 0.82f, stiffness = 360f), label = "previousOffset")
-        val selectedOffset by animateFloatAsState(dragOffset.value, spring(dampingRatio = 0.82f, stiffness = 360f), label = "selectedOffset")
-        val nextOffset by animateFloatAsState((spacingPx + dragOffset.value), spring(dampingRatio = 0.82f, stiffness = 360f), label = "nextOffset")
+        val spacingPx = with(LocalDensity.current) { 86.dp.toPx() }
 
         fun centerProgress(offset: Float): Float {
-            return (1f - (abs(offset) / (spacingPx * 1.15f))).coerceIn(0f, 1f)
+            return (1f - (abs(offset) / (spacingPx * 2.2f))).coerceIn(0f, 1f)
         }
 
-        fun scaleFor(offset: Float): Float = 0.88f + (centerProgress(offset) * 0.22f)
-        fun alphaFor(offset: Float): Float = 0.55f + (centerProgress(offset) * 0.45f)
+        fun scaleFor(offset: Float): Float = 0.74f + (centerProgress(offset) * 0.30f)
+        fun alphaFor(offset: Float): Float = 0.28f + (centerProgress(offset) * 0.72f)
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -473,32 +467,25 @@ private fun CardFlowsScreen(
                 color = Color.White.copy(alpha = 0.8f)
             )
             Box(modifier = Modifier.fillMaxWidth().height(132.dp), contentAlignment = Alignment.Center) {
-                if (previous != null) {
-                    FlowCircle(
-                        flow = previous,
-                        selected = false,
-                        onClick = {},
-                        emphasisScale = scaleFor(previousOffset),
-                        emphasisAlpha = alphaFor(previousOffset),
-                        modifier = Modifier.offset { IntOffset(previousOffset.roundToInt(), 0) }
+                flows.forEachIndexed { index, flow ->
+                    val targetOffset by animateFloatAsState(
+                        targetValue = ((index - selectedIndex) * spacingPx) + dragOffset.value,
+                        animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
+                        label = "flowOffset$index"
                     )
-                }
-                FlowCircle(
-                    flow = selected,
-                    selected = true,
-                    onClick = onOpenSelectedFlow,
-                    emphasisScale = scaleFor(selectedOffset),
-                    emphasisAlpha = alphaFor(selectedOffset),
-                    modifier = Modifier.offset { IntOffset(selectedOffset.roundToInt(), 0) }
-                )
-                if (next != null) {
+                    val emphasisScale = scaleFor(targetOffset)
+                    val emphasisAlpha = alphaFor(targetOffset)
                     FlowCircle(
-                        flow = next,
-                        selected = false,
-                        onClick = {},
-                        emphasisScale = scaleFor(nextOffset),
-                        emphasisAlpha = alphaFor(nextOffset),
-                        modifier = Modifier.offset { IntOffset(nextOffset.roundToInt(), 0) }
+                        flow = flow,
+                        selected = index == selectedIndex,
+                        onClick = {
+                            if (index == selectedIndex) onOpenSelectedFlow() else onSelectedIndexChange(index)
+                        },
+                        emphasisScale = emphasisScale,
+                        emphasisAlpha = emphasisAlpha,
+                        modifier = Modifier
+                            .zIndex(emphasisScale)
+                            .offset { IntOffset(targetOffset.roundToInt(), 0) }
                     )
                 }
             }
@@ -508,7 +495,7 @@ private fun CardFlowsScreen(
 
 @Composable
 private fun FlowCircle(
-    flow: CardFlow?,
+    flow: CardFlow,
     selected: Boolean,
     onClick: () -> Unit,
     emphasisScale: Float,
@@ -516,7 +503,7 @@ private fun FlowCircle(
     modifier: Modifier = Modifier
 ) {
     val size = if (selected) 108.dp else 84.dp
-    val circleAlpha = if (flow == null) 0f else emphasisAlpha
+    val circleAlpha = emphasisAlpha
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -527,7 +514,7 @@ private fun FlowCircle(
             .size(size)
             .clip(RoundedCornerShape(999.dp))
             .background(Color(0xFF2A3744))
-            .then(if (selected && flow != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .clickable(onClick = onClick)
             .padding(12.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -539,7 +526,7 @@ private fun FlowCircle(
                 .padding(if (selected) 8.dp else 6.dp)
         ) {
             Text(
-                text = flow?.name.orEmpty(),
+                text = flow.name,
                 textAlign = TextAlign.Center,
                 fontSize = if (selected) 14.sp else 10.sp,
                 lineHeight = if (selected) 16.sp else 12.sp,
