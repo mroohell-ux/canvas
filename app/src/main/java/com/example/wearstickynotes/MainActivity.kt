@@ -475,10 +475,10 @@ private fun CardFlowsScreen(
 
         BoxWithConstraints {
             val minScreenSize = minOf(maxWidth, maxHeight)
-            val selectedCircleSize = (minScreenSize * 0.40f).coerceIn(100.dp, 132.dp)
-            val sideCircleSize = (selectedCircleSize * 0.78f).coerceIn(78.dp, 112.dp)
-            val railHeight = (selectedCircleSize * 1.32f).coerceIn(140.dp, 192.dp)
-            val adaptiveSpacingPx = with(density) { (selectedCircleSize * 0.80f).toPx() }
+            val selectedCircleSize = (minScreenSize * 0.43f).coerceIn(106.dp, 140.dp)
+            val sideCircleSize = (selectedCircleSize * 0.82f).coerceIn(84.dp, 118.dp)
+            val railHeight = (selectedCircleSize * 1.30f).coerceIn(146.dp, 200.dp)
+            val adaptiveSpacingPx = with(density) { (selectedCircleSize * 0.84f).toPx() }
 
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
