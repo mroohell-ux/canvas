@@ -317,6 +317,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                             noteSideState[noteId] = !current
                         },
                         onLongPressExit = { appScreen = AppScreen.CardFlows },
+                        isCollectionsFlow = activeFlow?.id == (Long.MIN_VALUE + 1),
                         isInCollection = currentNote?.let { collectionNoteState[it.id] == true } ?: false,
                         onToggleCollection = {
                             currentNote?.let { note ->
@@ -575,6 +576,7 @@ private fun NotesScreen(
     onSelectedIndexChange: (Int) -> Unit,
     onFlip: (Long) -> Unit,
     onLongPressExit: () -> Unit,
+    isCollectionsFlow: Boolean,
     isInCollection: Boolean,
     onToggleCollection: () -> Unit,
     onImportFromPhone: () -> Unit,
@@ -606,8 +608,24 @@ private fun NotesScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (notes.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Button(onClick = onImportFromPhone) { Text("Import from phone") }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(flowName, isCollectionsFlow) {
+                        detectTapGestures(onLongPress = { onLongPressExit() })
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                if (isCollectionsFlow) {
+                    Text(
+                        text = "Collections is empty
+Long press to return",
+                        color = Color.White.copy(alpha = 0.92f),
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    Button(onClick = onImportFromPhone) { Text("Import from phone") }
+                }
             }
             return@Box
         }
