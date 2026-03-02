@@ -433,16 +433,42 @@ private fun CardFlowsScreen(
 ) {
     val scope = rememberCoroutineScope()
     val dragOffset = remember { Animatable(0f) }
+    var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
+    val focusRequester = remember { FocusRequester() }
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
     val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
     var dragStartedAtMs by remember { mutableLongStateOf(0L) }
 
+    LaunchedEffect(flows.size) {
+        if (flows.isNotEmpty()) {
+            focusRequester.requestFocus()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(10.dp)
+            .focusRequester(focusRequester)
+            .focusable()
+            .onRotaryScrollEvent {
+                var updated = rotaryAccumulator + it.verticalScrollPixels
+                when {
+                    updated > 25f -> {
+                        onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0)))
+                        updated = 0f
+                    }
+
+                    updated < -25f -> {
+                        onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
+                        updated = 0f
+                    }
+                }
+                rotaryAccumulator = updated
+                true
+            }
             .pointerInput(flows.size, selectedIndex) {
                 detectHorizontalDragGestures(
                     onHorizontalDrag = { _, amount ->
