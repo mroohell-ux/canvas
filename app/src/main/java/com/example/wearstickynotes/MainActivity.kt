@@ -416,6 +416,8 @@ private fun CardFlowsScreen(
 ) {
     val scope = rememberCoroutineScope()
     val dragOffset = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    val spacingPx = with(density) { 92.dp.toPx() }
 
     Box(
         modifier = Modifier
@@ -427,10 +429,10 @@ private fun CardFlowsScreen(
                         scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
                     },
                     onDragEnd = {
-                        val threshold = 40f
-                        when {
-                            dragOffset.value > threshold -> onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
-                            dragOffset.value < -threshold -> onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0)))
+                        val dragSteps = (dragOffset.value / spacingPx).roundToInt()
+                        val targetIndex = (selectedIndex - dragSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
+                        if (targetIndex != selectedIndex) {
+                            onSelectedIndexChange(targetIndex)
                         }
                         scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
                     },
@@ -446,8 +448,6 @@ private fun CardFlowsScreen(
             return@Box
         }
 
-        val spacingPx = with(LocalDensity.current) { 92.dp.toPx() }
-
         fun centerProgress(offset: Float): Float {
             return (1f - (abs(offset) / (spacingPx * 2.2f))).coerceIn(0f, 1f)
         }
@@ -459,7 +459,6 @@ private fun CardFlowsScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Card Flows", color = Color.White.copy(alpha = 0.85f))
             Text(
                 text = "Flow ${selectedIndex + 1}/${flows.size}",
                 fontSize = 11.sp,
