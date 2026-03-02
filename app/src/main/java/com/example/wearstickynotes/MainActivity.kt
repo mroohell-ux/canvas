@@ -70,6 +70,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
@@ -98,6 +99,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
+import kotlin.math.abs
 import kotlin.coroutines.resume
 
 class MainActivity : ComponentActivity() {
@@ -435,6 +437,13 @@ private fun CardFlowsScreen(
         val selectedOffset by animateFloatAsState(dragOffset.value, spring(dampingRatio = 0.82f, stiffness = 360f), label = "selectedOffset")
         val nextOffset by animateFloatAsState((spacingPx + dragOffset.value), spring(dampingRatio = 0.82f, stiffness = 360f), label = "nextOffset")
 
+        fun centerProgress(offset: Float): Float {
+            return (1f - (abs(offset) / (spacingPx * 1.15f))).coerceIn(0f, 1f)
+        }
+
+        fun scaleFor(offset: Float): Float = 0.76f + (centerProgress(offset) * 0.42f)
+        fun alphaFor(offset: Float): Float = 0.15f + (centerProgress(offset) * 0.85f)
+
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -445,18 +454,24 @@ private fun CardFlowsScreen(
                     flow = previous,
                     selected = false,
                     onClick = {},
+                    emphasisScale = scaleFor(previousOffset),
+                    emphasisAlpha = alphaFor(previousOffset),
                     modifier = Modifier.offset { IntOffset(previousOffset.roundToInt(), 0) }
                 )
                 FlowCircle(
                     flow = selected,
                     selected = true,
                     onClick = onOpenSelectedFlow,
+                    emphasisScale = scaleFor(selectedOffset),
+                    emphasisAlpha = alphaFor(selectedOffset),
                     modifier = Modifier.offset { IntOffset(selectedOffset.roundToInt(), 0) }
                 )
                 FlowCircle(
                     flow = next,
                     selected = false,
                     onClick = {},
+                    emphasisScale = scaleFor(nextOffset),
+                    emphasisAlpha = alphaFor(nextOffset),
                     modifier = Modifier.offset { IntOffset(nextOffset.roundToInt(), 0) }
                 )
             }
@@ -470,15 +485,22 @@ private fun FlowCircle(
     flow: CardFlow?,
     selected: Boolean,
     onClick: () -> Unit,
+    emphasisScale: Float,
+    emphasisAlpha: Float,
     modifier: Modifier = Modifier
 ) {
     val size = if (selected) 108.dp else 82.dp
-    val alpha = if (flow == null) 0f else if (selected) 1f else 0.65f
+    val circleAlpha = if (flow == null) 0f else emphasisAlpha
     Box(
         modifier = modifier
+            .graphicsLayer {
+                scaleX = emphasisScale
+                scaleY = emphasisScale
+                alpha = circleAlpha
+            }
             .size(size)
             .clip(RoundedCornerShape(999.dp))
-            .background(Color(0xFF2A3744).copy(alpha = alpha))
+            .background(Color(0xFF2A3744).copy(alpha = circleAlpha))
             .then(if (selected && flow != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(12.dp),
         contentAlignment = Alignment.Center
@@ -487,7 +509,7 @@ private fun FlowCircle(
             modifier = Modifier
                 .padding(2.dp)
                 .clip(RoundedCornerShape(999.dp))
-                .background(Color(0xFF3A4B5C).copy(alpha = alpha))
+                .background(Color(0xFF3A4B5C).copy(alpha = circleAlpha))
                 .padding(8.dp)
         ) {
             Text(
@@ -496,7 +518,7 @@ private fun FlowCircle(
                 fontSize = if (selected) 14.sp else 11.sp,
                 modifier = Modifier
                     .padding(horizontal = 10.dp, vertical = 20.dp),
-                color = Color.White.copy(alpha = if (selected) 1f else 0.85f)
+                color = Color.White.copy(alpha = if (selected) circleAlpha else (circleAlpha * 0.9f).coerceAtLeast(0.3f))
             )
         }
     }
