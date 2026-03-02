@@ -126,7 +126,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
     var appScreen by remember { mutableStateOf(AppScreen.CardFlows) }
     var selectedFlowIndex by remember { mutableIntStateOf(0) }
-    var selectedNoteIndex by remember { mutableIntStateOf(0) }
+    val flowLastOpenedNoteIndex = remember { mutableStateMapOf<Long, Int>() }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     var importState by remember { mutableStateOf<ImportState>(ImportState.Idle) }
     var services by remember { mutableStateOf(emptyList<DiscoveredService>()) }
@@ -184,7 +184,8 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     val safeFlowIndex = selectedFlowIndex.coerceIn(0, (flowBuckets.lastIndex).coerceAtLeast(0))
     val activeFlow = flowBuckets.getOrNull(safeFlowIndex)
     val flowNotes = activeFlow?.notes.orEmpty()
-    val safeNoteIndex = selectedNoteIndex.coerceIn(0, (flowNotes.lastIndex).coerceAtLeast(0))
+    val rememberedNoteIndex = activeFlow?.let { flowLastOpenedNoteIndex[it.id] ?: 0 } ?: 0
+    val safeNoteIndex = rememberedNoteIndex.coerceIn(0, (flowNotes.lastIndex).coerceAtLeast(0))
     val currentNote = flowNotes.getOrNull(safeNoteIndex)
     val showBack = currentNote?.let { noteSideState[it.id] ?: false } ?: false
 
@@ -196,10 +197,6 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         prefs.edit().putString("text_scale", textScale.storageKey).apply()
     }
 
-    LaunchedEffect(activeFlow?.id) {
-        selectedNoteIndex = 0
-    }
-
     fun onImported(imported: List<StickyNote>) {
         val organized = organizeImportedNotes(imported)
         notes.clear()
@@ -207,7 +204,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         noteSideState.clear()
         collectionNoteState.clear()
         selectedFlowIndex = 0
-        selectedNoteIndex = 0
+        flowLastOpenedNoteIndex.clear()
         appScreen = AppScreen.CardFlows
         importState = ImportState.Imported(organized.size)
     }
@@ -298,7 +295,8 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                         onSelectedIndexChange = { selectedFlowIndex = it },
                         onOpenSelectedFlow = {
                             if (flowBuckets.isNotEmpty()) {
-                                selectedNoteIndex = 0
+                                val activeId = flowBuckets[safeFlowIndex].id
+                                flowLastOpenedNoteIndex.putIfAbsent(activeId, 0)
                                 appScreen = AppScreen.Notes
                             }
                         }
@@ -311,7 +309,9 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                         showBack = showBack,
                         rotaryAccumulator = rotaryAccumulator,
                         onRotaryAccumulatorChange = { rotaryAccumulator = it },
-                        onSelectedIndexChange = { selectedNoteIndex = it },
+                        onSelectedIndexChange = { index ->
+                            activeFlow?.let { flow -> flowLastOpenedNoteIndex[flow.id] = index }
+                        },
                         onFlip = { noteId ->
                             val current = noteSideState[noteId] ?: false
                             noteSideState[noteId] = !current
