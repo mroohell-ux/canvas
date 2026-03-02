@@ -146,7 +146,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     var textScale by remember { mutableStateOf(initialTextScale) }
     val noteSideState = remember { mutableStateMapOf<Long, Boolean>() }
 
-    val flowBuckets = notes.groupBy { "${it.flowId}|${it.flowName}" }
+    val groupedFlows = notes.groupBy { "${it.flowId}|${it.flowName}" }
         .map { (_, flowNotes) ->
             CardFlow(
                 id = flowNotes.first().flowId,
@@ -155,6 +155,23 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
             )
         }
         .sortedBy { it.name }
+
+    val allNotesFlow = CardFlow(
+        id = Long.MIN_VALUE,
+        name = "all notes",
+        notes = if (shuffleMode) notes.shuffled() else notes.sortedBy { it.id }
+    )
+    val collectionsFlow = CardFlow(
+        id = Long.MIN_VALUE + 1,
+        name = "collections",
+        notes = if (shuffleMode) notes.shuffled() else notes.sortedWith(compareBy<StickyNote> { it.cardTitle }.thenBy { it.id })
+    )
+
+    val flowBuckets = buildList {
+        add(allNotesFlow)
+        add(collectionsFlow)
+        addAll(groupedFlows)
+    }
 
     val safeFlowIndex = selectedFlowIndex.coerceIn(0, (flowBuckets.lastIndex).coerceAtLeast(0))
     val activeFlow = flowBuckets.getOrNull(safeFlowIndex)
@@ -432,7 +449,7 @@ private fun CardFlowsScreen(
         val selected = flows[selectedIndex]
         val next = flows.getOrNull(selectedIndex + 1)
 
-        val spacingPx = with(LocalDensity.current) { 96.dp.toPx() }
+        val spacingPx = with(LocalDensity.current) { 84.dp.toPx() }
         val previousOffset by animateFloatAsState((-spacingPx + dragOffset.value), spring(dampingRatio = 0.82f, stiffness = 360f), label = "previousOffset")
         val selectedOffset by animateFloatAsState(dragOffset.value, spring(dampingRatio = 0.82f, stiffness = 360f), label = "selectedOffset")
         val nextOffset by animateFloatAsState((spacingPx + dragOffset.value), spring(dampingRatio = 0.82f, stiffness = 360f), label = "nextOffset")
@@ -441,8 +458,8 @@ private fun CardFlowsScreen(
             return (1f - (abs(offset) / (spacingPx * 1.15f))).coerceIn(0f, 1f)
         }
 
-        fun scaleFor(offset: Float): Float = 0.76f + (centerProgress(offset) * 0.42f)
-        fun alphaFor(offset: Float): Float = 0.15f + (centerProgress(offset) * 0.85f)
+        fun scaleFor(offset: Float): Float = 0.88f + (centerProgress(offset) * 0.22f)
+        fun alphaFor(offset: Float): Float = 0.55f + (centerProgress(offset) * 0.45f)
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -510,7 +527,7 @@ private fun FlowCircle(
             }
             .size(size)
             .clip(RoundedCornerShape(999.dp))
-            .background(Color(0xFF2A3744).copy(alpha = circleAlpha))
+            .background(Color(0xFF2A3744))
             .then(if (selected && flow != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(12.dp),
         contentAlignment = Alignment.Center
@@ -519,7 +536,7 @@ private fun FlowCircle(
             modifier = Modifier
                 .padding(2.dp)
                 .clip(RoundedCornerShape(999.dp))
-                .background(Color(0xFF3A4B5C).copy(alpha = circleAlpha))
+                .background(Color(0xFF3A4B5C))
                 .padding(8.dp)
         ) {
             Text(
@@ -528,7 +545,7 @@ private fun FlowCircle(
                 fontSize = if (selected) 14.sp else 11.sp,
                 modifier = Modifier
                     .padding(horizontal = 10.dp, vertical = 20.dp),
-                color = Color.White.copy(alpha = if (selected) circleAlpha else (circleAlpha * 0.9f).coerceAtLeast(0.3f))
+                color = Color.White.copy(alpha = if (selected) 1f else 0.9f)
             )
         }
     }
