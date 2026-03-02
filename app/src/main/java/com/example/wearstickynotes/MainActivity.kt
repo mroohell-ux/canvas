@@ -79,6 +79,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
@@ -158,12 +159,12 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
     val allNotesFlow = CardFlow(
         id = Long.MIN_VALUE,
-        name = "all notes",
+        name = "All Notes",
         notes = if (shuffleMode) notes.shuffled() else notes.sortedBy { it.id }
     )
     val collectionsFlow = CardFlow(
         id = Long.MIN_VALUE + 1,
-        name = "collections",
+        name = "Collections",
         notes = if (shuffleMode) notes.shuffled() else notes.sortedWith(compareBy<StickyNote> { it.cardTitle }.thenBy { it.id })
     )
 
@@ -445,11 +446,9 @@ private fun CardFlowsScreen(
             return@Box
         }
 
-        val previousIndex = if (flows.size <= 1) selectedIndex else (selectedIndex - 1 + flows.size) % flows.size
-        val nextIndex = if (flows.size <= 1) selectedIndex else (selectedIndex + 1) % flows.size
-        val previous = flows.getOrNull(previousIndex)
+        val previous = flows.getOrNull(selectedIndex - 1)
         val selected = flows[selectedIndex]
-        val next = flows.getOrNull(nextIndex)
+        val next = flows.getOrNull(selectedIndex + 1)
 
         val spacingPx = with(LocalDensity.current) { 84.dp.toPx() }
         val previousOffset by animateFloatAsState((-spacingPx + dragOffset.value), spring(dampingRatio = 0.82f, stiffness = 360f), label = "previousOffset")
@@ -474,14 +473,16 @@ private fun CardFlowsScreen(
                 color = Color.White.copy(alpha = 0.8f)
             )
             Box(modifier = Modifier.fillMaxWidth().height(132.dp), contentAlignment = Alignment.Center) {
-                FlowCircle(
-                    flow = previous,
-                    selected = false,
-                    onClick = {},
-                    emphasisScale = scaleFor(previousOffset),
-                    emphasisAlpha = alphaFor(previousOffset),
-                    modifier = Modifier.offset { IntOffset(previousOffset.roundToInt(), 0) }
-                )
+                if (previous != null) {
+                    FlowCircle(
+                        flow = previous,
+                        selected = false,
+                        onClick = {},
+                        emphasisScale = scaleFor(previousOffset),
+                        emphasisAlpha = alphaFor(previousOffset),
+                        modifier = Modifier.offset { IntOffset(previousOffset.roundToInt(), 0) }
+                    )
+                }
                 FlowCircle(
                     flow = selected,
                     selected = true,
@@ -490,14 +491,16 @@ private fun CardFlowsScreen(
                     emphasisAlpha = alphaFor(selectedOffset),
                     modifier = Modifier.offset { IntOffset(selectedOffset.roundToInt(), 0) }
                 )
-                FlowCircle(
-                    flow = next,
-                    selected = false,
-                    onClick = {},
-                    emphasisScale = scaleFor(nextOffset),
-                    emphasisAlpha = alphaFor(nextOffset),
-                    modifier = Modifier.offset { IntOffset(nextOffset.roundToInt(), 0) }
-                )
+                if (next != null) {
+                    FlowCircle(
+                        flow = next,
+                        selected = false,
+                        onClick = {},
+                        emphasisScale = scaleFor(nextOffset),
+                        emphasisAlpha = alphaFor(nextOffset),
+                        modifier = Modifier.offset { IntOffset(nextOffset.roundToInt(), 0) }
+                    )
+                }
             }
         }
     }
@@ -512,7 +515,7 @@ private fun FlowCircle(
     emphasisAlpha: Float,
     modifier: Modifier = Modifier
 ) {
-    val size = if (selected) 108.dp else 82.dp
+    val size = if (selected) 108.dp else 84.dp
     val circleAlpha = if (flow == null) 0f else emphasisAlpha
     Box(
         modifier = modifier
@@ -533,15 +536,18 @@ private fun FlowCircle(
                 .padding(2.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(Color(0xFF3A4B5C))
-                .padding(8.dp)
+                .padding(if (selected) 8.dp else 6.dp)
         ) {
             Text(
                 text = flow?.name.orEmpty(),
                 textAlign = TextAlign.Center,
-                fontSize = if (selected) 14.sp else 11.sp,
+                fontSize = if (selected) 14.sp else 10.sp,
+                lineHeight = if (selected) 16.sp else 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
-                    .padding(horizontal = 10.dp, vertical = 20.dp),
-                color = Color.White.copy(alpha = if (selected) 1f else 0.9f)
+                    .padding(horizontal = if (selected) 10.dp else 6.dp, vertical = if (selected) 20.dp else 8.dp),
+                color = Color.White.copy(alpha = if (selected) 1f else 0.92f)
             )
         }
     }
