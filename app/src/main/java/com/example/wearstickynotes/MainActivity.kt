@@ -55,6 +55,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -436,6 +437,7 @@ private fun CardFlowsScreen(
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
     val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
+    var dragStartedAtMs by remember { mutableLongStateOf(0L) }
 
     Box(
         modifier = Modifier
@@ -444,17 +446,39 @@ private fun CardFlowsScreen(
             .pointerInput(flows.size, selectedIndex) {
                 detectHorizontalDragGestures(
                     onHorizontalDrag = { _, amount ->
+                        if (dragStartedAtMs == 0L) {
+                            dragStartedAtMs = System.currentTimeMillis()
+                        }
                         scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
                     },
                     onDragEnd = {
                         val dragSteps = (dragOffset.value / spacingPx).roundToInt()
-                        val targetIndex = (selectedIndex - dragSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
+                        val durationMs = (System.currentTimeMillis() - dragStartedAtMs).coerceAtLeast(1L)
+                        val velocityPxPerMs = kotlin.math.abs(dragOffset.value) / durationMs.toFloat()
+                        val fastSwipeBoost = when {
+                            velocityPxPerMs > 2.8f -> 2
+                            velocityPxPerMs > 1.8f -> 1
+                            else -> 0
+                        }
+                        val boostedSteps = if (dragSteps == 0 && fastSwipeBoost > 0) {
+                            if (dragOffset.value < 0f) 1 else -1
+                        } else if (dragSteps > 0) {
+                            dragSteps + fastSwipeBoost
+                        } else if (dragSteps < 0) {
+                            dragSteps - fastSwipeBoost
+                        } else {
+                            0
+                        }
+
+                        val targetIndex = (selectedIndex - boostedSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
                         if (targetIndex != selectedIndex) {
                             onSelectedIndexChange(targetIndex)
                         }
+                        dragStartedAtMs = 0L
                         scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
                     },
                     onDragCancel = {
+                        dragStartedAtMs = 0L
                         scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
                     }
                 )
@@ -618,8 +642,7 @@ private fun NotesScreen(
             ) {
                 if (isCollectionsFlow) {
                     Text(
-                        text = "Collections is empty
-Long press to return",
+                        text = "Collections is empty Long press to return",
                         color = Color.White.copy(alpha = 0.92f),
                         textAlign = TextAlign.Center
                     )
