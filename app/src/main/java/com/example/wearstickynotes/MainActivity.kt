@@ -449,6 +449,11 @@ private fun CardFlowsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("Card Flows", color = Color.White.copy(alpha = 0.85f))
+            Text(
+                text = "Flow ${selectedIndex + 1}/${flows.size}",
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.8f)
+            )
             Box(modifier = Modifier.fillMaxWidth().height(132.dp), contentAlignment = Alignment.Center) {
                 FlowCircle(
                     flow = previous,
@@ -475,7 +480,12 @@ private fun CardFlowsScreen(
                     modifier = Modifier.offset { IntOffset(nextOffset.roundToInt(), 0) }
                 )
             }
-            Text("Swipe to browse • Tap center to open", fontSize = 10.sp, color = Color.White.copy(alpha = 0.7f))
+            Text(
+                "Only 3 circles are shown at once • Swipe to browse • Tap center to open",
+                fontSize = 10.sp,
+                color = Color.White.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
