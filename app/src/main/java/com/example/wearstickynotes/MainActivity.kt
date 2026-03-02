@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -148,6 +149,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     var shuffleMode by remember { mutableStateOf(initialShuffleMode) }
     var textScale by remember { mutableStateOf(initialTextScale) }
     val noteSideState = remember { mutableStateMapOf<Long, Boolean>() }
+    val collectionNoteState = remember { mutableStateMapOf<Long, Boolean>() }
 
     val groupedFlows = notes.groupBy { "${it.flowId}|${it.flowName}" }
         .map { (_, flowNotes) ->
@@ -164,10 +166,14 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         name = "All Notes",
         notes = if (shuffleMode) notes.shuffled() else notes.sortedBy { it.id }
     )
+    val collectionNotes = notes
+        .filter { collectionNoteState[it.id] == true }
+        .let { if (shuffleMode) it.shuffled() else it.sortedWith(compareBy<StickyNote> { it.cardTitle }.thenBy { it.id }) }
+
     val collectionsFlow = CardFlow(
         id = Long.MIN_VALUE + 1,
         name = "Collections",
-        notes = if (shuffleMode) notes.shuffled() else notes.sortedWith(compareBy<StickyNote> { it.cardTitle }.thenBy { it.id })
+        notes = collectionNotes
     )
 
     val flowBuckets = buildList {
@@ -200,6 +206,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         notes.clear()
         notes.addAll(organized)
         noteSideState.clear()
+        collectionNoteState.clear()
         selectedFlowIndex = 0
         selectedNoteIndex = 0
         appScreen = AppScreen.CardFlows
@@ -311,6 +318,13 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                             noteSideState[noteId] = !current
                         },
                         onLongPressExit = { appScreen = AppScreen.CardFlows },
+                        isInCollection = currentNote?.let { collectionNoteState[it.id] == true } ?: false,
+                        onToggleCollection = {
+                            currentNote?.let { note ->
+                                val current = collectionNoteState[note.id] == true
+                                collectionNoteState[note.id] = !current
+                            }
+                        },
                         onImportFromPhone = { startDiscovery() },
                         shuffleMode = shuffleMode,
                         onToggleShuffle = { shuffleMode = !shuffleMode },
@@ -562,6 +576,8 @@ private fun NotesScreen(
     onSelectedIndexChange: (Int) -> Unit,
     onFlip: (Long) -> Unit,
     onLongPressExit: () -> Unit,
+    isInCollection: Boolean,
+    onToggleCollection: () -> Unit,
     onImportFromPhone: () -> Unit,
     shuffleMode: Boolean,
     onToggleShuffle: () -> Unit,
@@ -759,6 +775,23 @@ private fun NotesScreen(
                     }
                 }
             }
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 14.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.36f))
+                .clickable { onToggleCollection() }
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (isInCollection) "★" else "☆",
+                color = if (isInCollection) Color(0xFFFFD54F) else Color.White,
+                fontSize = 18.sp
+            )
         }
 
         if (trayScrimAlpha > 0.001f) {
