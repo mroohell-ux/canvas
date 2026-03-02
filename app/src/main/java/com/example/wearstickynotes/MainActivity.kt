@@ -42,7 +42,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -588,6 +587,10 @@ private fun NotesScreen(
     var showTray by remember { mutableStateOf(false) }
     val noteScrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
+    val configuration = LocalConfiguration.current
+    val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
+    val starFontSize = (minScreenDp * 0.075f).coerceIn(12f, 18f).sp
+    val starBottomPadding = (minScreenDp * 0.045f).coerceIn(8f, 16f).dp
     val trayScrimAlpha by animateFloatAsState(
         targetValue = if (showTray) 0.30f else 0f,
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
@@ -777,22 +780,15 @@ private fun NotesScreen(
             }
         }
 
-        Box(
+        Text(
+            text = if (isInCollection) "★" else "☆",
+            color = if (isInCollection) Color(0xFFFFD54F) else Color.White,
+            fontSize = starFontSize,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 14.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.36f))
+                .padding(bottom = starBottomPadding)
                 .clickable { onToggleCollection() }
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = if (isInCollection) "★" else "☆",
-                color = if (isInCollection) Color(0xFFFFD54F) else Color.White,
-                fontSize = 18.sp
-            )
-        }
+        )
 
         if (trayScrimAlpha > 0.001f) {
             Box(
