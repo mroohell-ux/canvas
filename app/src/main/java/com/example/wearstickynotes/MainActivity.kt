@@ -8,8 +8,15 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -29,7 +36,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -45,6 +55,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -60,9 +71,12 @@ import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -71,6 +85,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -88,6 +103,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
+import kotlin.math.abs
 import kotlin.coroutines.resume
 
 class MainActivity : ComponentActivity() {
@@ -109,7 +125,9 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         mutableStateListOf<StickyNote>().apply { addAll(defaultStickyNotes()) }
     }
 
-    var selectedIndex by remember { mutableIntStateOf(0) }
+    var appScreen by remember { mutableStateOf(AppScreen.CardFlows) }
+    var selectedFlowIndex by remember { mutableIntStateOf(0) }
+    val flowLastOpenedNoteIndex = remember { mutableStateMapOf<Long, Int>() }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     var importState by remember { mutableStateOf<ImportState>(ImportState.Idle) }
     var services by remember { mutableStateOf(emptyList<DiscoveredService>()) }
@@ -130,17 +148,47 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
     var shuffleMode by remember { mutableStateOf(initialShuffleMode) }
     var textScale by remember { mutableStateOf(initialTextScale) }
-    var noteOrder by remember {
-        mutableStateOf(
-            if (initialShuffleMode) notes.indices.shuffled() else notes.indices.toList()
-        )
-    }
     val noteSideState = remember { mutableStateMapOf<Long, Boolean>() }
+    val collectionNoteState = remember { mutableStateMapOf<Long, Boolean>() }
 
-    fun reorderNotes() {
-        noteOrder = if (shuffleMode) notes.indices.shuffled() else notes.indices.toList()
-        selectedIndex = 0
+    val groupedFlows = notes.groupBy { "${it.flowId}|${it.flowName}" }
+        .map { (_, flowNotes) ->
+            CardFlow(
+                id = flowNotes.first().flowId,
+                name = flowNotes.first().flowName,
+                notes = if (shuffleMode) flowNotes.shuffled() else flowNotes.sortedBy { it.id }
+            )
+        }
+        .sortedBy { it.name }
+
+    val allNotesFlow = CardFlow(
+        id = Long.MIN_VALUE,
+        name = "All Notes",
+        notes = if (shuffleMode) notes.shuffled() else notes.sortedBy { it.id }
+    )
+    val collectionNotes = notes
+        .filter { collectionNoteState[it.id] == true }
+        .let { if (shuffleMode) it.shuffled() else it.sortedWith(compareBy<StickyNote> { it.cardTitle }.thenBy { it.id }) }
+
+    val collectionsFlow = CardFlow(
+        id = Long.MIN_VALUE + 1,
+        name = "Collections",
+        notes = collectionNotes
+    )
+
+    val flowBuckets = buildList {
+        add(allNotesFlow)
+        add(collectionsFlow)
+        addAll(groupedFlows)
     }
+
+    val safeFlowIndex = selectedFlowIndex.coerceIn(0, (flowBuckets.lastIndex).coerceAtLeast(0))
+    val activeFlow = flowBuckets.getOrNull(safeFlowIndex)
+    val flowNotes = activeFlow?.notes.orEmpty()
+    val rememberedNoteIndex = activeFlow?.let { flowLastOpenedNoteIndex[it.id] ?: 0 } ?: 0
+    val safeNoteIndex = rememberedNoteIndex.coerceIn(0, (flowNotes.lastIndex).coerceAtLeast(0))
+    val currentNote = flowNotes.getOrNull(safeNoteIndex)
+    val showBack = currentNote?.let { noteSideState[it.id] ?: false } ?: false
 
     LaunchedEffect(shuffleMode) {
         prefs.edit().putBoolean("shuffle_mode", shuffleMode).apply()
@@ -151,11 +199,15 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     }
 
     fun onImported(imported: List<StickyNote>) {
+        val organized = organizeImportedNotes(imported)
         notes.clear()
-        notes.addAll(imported)
+        notes.addAll(organized)
         noteSideState.clear()
-        reorderNotes()
-        importState = ImportState.Imported(imported.size)
+        collectionNoteState.clear()
+        selectedFlowIndex = 0
+        flowLastOpenedNoteIndex.clear()
+        appScreen = AppScreen.CardFlows
+        importState = ImportState.Imported(organized.size)
     }
 
     fun startDiscovery() {
@@ -186,10 +238,6 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         }
     }
 
-    val orderedNotes = noteOrder.mapNotNull { index -> notes.getOrNull(index) }
-    val currentNote = orderedNotes.getOrNull(selectedIndex)
-    val showBack = currentNote?.let { noteSideState[it.id] ?: false } ?: false
-
     when (val state = importState) {
         ImportState.Searching,
         is ImportState.DeviceList,
@@ -218,26 +266,74 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         }
 
         ImportState.Idle -> {
-            NotesScreen(
-                notes = orderedNotes,
-                selectedIndex = selectedIndex,
-                showBack = showBack,
-                rotaryAccumulator = rotaryAccumulator,
-                onRotaryAccumulatorChange = { rotaryAccumulator = it },
-                onSelectedIndexChange = { selectedIndex = it },
-                onFlip = { noteId ->
-                    val current = noteSideState[noteId] ?: false
-                    noteSideState[noteId] = !current
+            AnimatedContent(
+                targetState = appScreen,
+                transitionSpec = {
+                    if (targetState == AppScreen.Notes) {
+                        slideInHorizontally(
+                            animationSpec = tween(320, easing = FastOutSlowInEasing),
+                            initialOffsetX = { it / 2 }
+                        ) + fadeIn() togetherWith slideOutHorizontally(
+                            animationSpec = tween(260, easing = FastOutSlowInEasing),
+                            targetOffsetX = { -it / 4 }
+                        ) + fadeOut()
+                    } else {
+                        slideInHorizontally(
+                            animationSpec = tween(320, easing = FastOutSlowInEasing),
+                            initialOffsetX = { -it / 3 }
+                        ) + fadeIn() togetherWith slideOutHorizontally(
+                            animationSpec = tween(260, easing = FastOutSlowInEasing),
+                            targetOffsetX = { it / 2 }
+                        ) + fadeOut()
+                    }
                 },
-                onImportFromPhone = { startDiscovery() },
-                shuffleMode = shuffleMode,
-                onToggleShuffle = {
-                    shuffleMode = !shuffleMode
-                    reorderNotes()
-                },
-                textScale = textScale,
-                onTextScaleChange = { textScale = it }
-            )
+                label = "screenTransition"
+            ) { screen ->
+                when (screen) {
+                    AppScreen.CardFlows -> CardFlowsScreen(
+                        flows = flowBuckets,
+                        selectedIndex = safeFlowIndex,
+                        onSelectedIndexChange = { selectedFlowIndex = it },
+                        onOpenSelectedFlow = {
+                            if (flowBuckets.isNotEmpty()) {
+                                val activeId = flowBuckets[safeFlowIndex].id
+                                flowLastOpenedNoteIndex.putIfAbsent(activeId, 0)
+                                appScreen = AppScreen.Notes
+                            }
+                        }
+                    )
+
+                    AppScreen.Notes -> NotesScreen(
+                        flowName = activeFlow?.name ?: "Flow",
+                        notes = flowNotes,
+                        selectedIndex = safeNoteIndex,
+                        showBack = showBack,
+                        rotaryAccumulator = rotaryAccumulator,
+                        onRotaryAccumulatorChange = { rotaryAccumulator = it },
+                        onSelectedIndexChange = { index ->
+                            activeFlow?.let { flow -> flowLastOpenedNoteIndex[flow.id] = index }
+                        },
+                        onFlip = { noteId ->
+                            val current = noteSideState[noteId] ?: false
+                            noteSideState[noteId] = !current
+                        },
+                        onLongPressExit = { appScreen = AppScreen.CardFlows },
+                        isCollectionsFlow = activeFlow?.id == (Long.MIN_VALUE + 1),
+                        isInCollection = currentNote?.let { collectionNoteState[it.id] == true } ?: false,
+                        onToggleCollection = {
+                            currentNote?.let { note ->
+                                val current = collectionNoteState[note.id] == true
+                                collectionNoteState[note.id] = !current
+                            }
+                        },
+                        onImportFromPhone = { startDiscovery() },
+                        shuffleMode = shuffleMode,
+                        onToggleShuffle = { shuffleMode = !shuffleMode },
+                        textScale = textScale,
+                        onTextScaleChange = { textScale = it }
+                    )
+                }
+            }
         }
     }
 }
@@ -328,9 +424,174 @@ private fun ImportFlowScreen(
     }
 }
 
+@Composable
+private fun CardFlowsScreen(
+    flows: List<CardFlow>,
+    selectedIndex: Int,
+    onSelectedIndexChange: (Int) -> Unit,
+    onOpenSelectedFlow: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val dragOffset = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
+    val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
+    var dragStartedAtMs by remember { mutableLongStateOf(0L) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(10.dp)
+            .pointerInput(flows.size, selectedIndex) {
+                detectHorizontalDragGestures(
+                    onHorizontalDrag = { _, amount ->
+                        if (dragStartedAtMs == 0L) {
+                            dragStartedAtMs = System.currentTimeMillis()
+                        }
+                        scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
+                    },
+                    onDragEnd = {
+                        val dragSteps = (dragOffset.value / spacingPx).roundToInt()
+                        val durationMs = (System.currentTimeMillis() - dragStartedAtMs).coerceAtLeast(1L)
+                        val velocityPxPerMs = kotlin.math.abs(dragOffset.value) / durationMs.toFloat()
+                        val fastSwipeBoost = when {
+                            velocityPxPerMs > 2.8f -> 2
+                            velocityPxPerMs > 1.8f -> 1
+                            else -> 0
+                        }
+                        val boostedSteps = if (dragSteps == 0 && fastSwipeBoost > 0) {
+                            if (dragOffset.value < 0f) 1 else -1
+                        } else if (dragSteps > 0) {
+                            dragSteps + fastSwipeBoost
+                        } else if (dragSteps < 0) {
+                            dragSteps - fastSwipeBoost
+                        } else {
+                            0
+                        }
+
+                        val targetIndex = (selectedIndex - boostedSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
+                        if (targetIndex != selectedIndex) {
+                            onSelectedIndexChange(targetIndex)
+                        }
+                        dragStartedAtMs = 0L
+                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+                    },
+                    onDragCancel = {
+                        dragStartedAtMs = 0L
+                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (flows.isEmpty()) {
+            Text("No card flows available")
+            return@Box
+        }
+
+        fun centerProgress(offset: Float): Float {
+            return (1f - (abs(offset) / (spacingPx * 2.2f))).coerceIn(0f, 1f)
+        }
+
+        fun scaleFor(offset: Float): Float = 0.80f + (centerProgress(offset) * 0.28f)
+        fun alphaFor(offset: Float): Float = 0.28f + (centerProgress(offset) * 0.72f)
+
+        BoxWithConstraints {
+            val minScreenSize = minOf(maxWidth, maxHeight)
+            val selectedCircleSize = (minScreenSize * 0.45f).coerceIn(110.dp, 146.dp)
+            val sideCircleSize = (selectedCircleSize * 0.84f).coerceIn(88.dp, 124.dp)
+            val railHeight = (selectedCircleSize * 1.28f).coerceIn(150.dp, 208.dp)
+            val adaptiveSpacingPx = with(density) { (selectedCircleSize * 0.86f).toPx() }
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Flow ${selectedIndex + 1}/${flows.size}",
+                    fontSize = 11.sp,
+                    color = Color.White.copy(alpha = 0.8f)
+                )
+                Box(modifier = Modifier.fillMaxWidth().height(railHeight), contentAlignment = Alignment.Center) {
+                    flows.forEachIndexed { index, flow ->
+                        val targetOffset by animateFloatAsState(
+                            targetValue = ((index - selectedIndex) * adaptiveSpacingPx) + dragOffset.value,
+                            animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
+                            label = "flowOffset$index"
+                        )
+                        val emphasisScale = scaleFor(targetOffset)
+                        val emphasisAlpha = alphaFor(targetOffset)
+                        FlowCircle(
+                            flow = flow,
+                            selected = index == selectedIndex,
+                            circleSize = if (index == selectedIndex) selectedCircleSize else sideCircleSize,
+                            onClick = {
+                                if (index == selectedIndex) onOpenSelectedFlow() else onSelectedIndexChange(index)
+                            },
+                            emphasisScale = emphasisScale,
+                            emphasisAlpha = emphasisAlpha,
+                            modifier = Modifier
+                                .zIndex(emphasisScale)
+                                .offset { IntOffset(targetOffset.roundToInt(), 0) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FlowCircle(
+    flow: CardFlow,
+    selected: Boolean,
+    circleSize: Dp,
+    onClick: () -> Unit,
+    emphasisScale: Float,
+    emphasisAlpha: Float,
+    modifier: Modifier = Modifier
+) {
+    val size = circleSize
+    val circleAlpha = emphasisAlpha
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                scaleX = emphasisScale
+                scaleY = emphasisScale
+                alpha = circleAlpha
+            }
+            .size(size)
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color(0xFF2A3744))
+            .clickable(onClick = onClick)
+            .padding(if (selected) 12.dp else 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(2.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color(0xFF3A4B5C))
+                .padding(if (selected) 10.dp else 8.dp)
+        ) {
+            Text(
+                text = flow.name,
+                textAlign = TextAlign.Center,
+                fontSize = if (selected) 11.sp else 9.sp,
+                lineHeight = if (selected) 13.sp else 11.sp,
+                modifier = Modifier
+                    .padding(horizontal = if (selected) 8.dp else 5.dp, vertical = if (selected) 12.dp else 8.dp),
+                color = Color.White.copy(alpha = if (selected) 1f else 0.92f)
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NotesScreen(
+    flowName: String,
     notes: List<StickyNote>,
     selectedIndex: Int,
     showBack: Boolean,
@@ -338,6 +599,10 @@ private fun NotesScreen(
     onRotaryAccumulatorChange: (Float) -> Unit,
     onSelectedIndexChange: (Int) -> Unit,
     onFlip: (Long) -> Unit,
+    onLongPressExit: () -> Unit,
+    isCollectionsFlow: Boolean,
+    isInCollection: Boolean,
+    onToggleCollection: () -> Unit,
     onImportFromPhone: () -> Unit,
     shuffleMode: Boolean,
     onToggleShuffle: () -> Unit,
@@ -348,6 +613,10 @@ private fun NotesScreen(
     var showTray by remember { mutableStateOf(false) }
     val noteScrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
+    val configuration = LocalConfiguration.current
+    val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
+    val starFontSize = (minScreenDp * 0.075f).coerceIn(12f, 18f).sp
+    val starBottomPadding = (minScreenDp * 0.045f).coerceIn(8f, 16f).dp
     val trayScrimAlpha by animateFloatAsState(
         targetValue = if (showTray) 0.30f else 0f,
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
@@ -355,15 +624,31 @@ private fun NotesScreen(
     )
 
     LaunchedEffect(notes.size, showTray) {
-        if (!showTray) {
+        if (!showTray && notes.isNotEmpty()) {
+            // Request focus only when the focusable note container is in composition.
             focusRequester.requestFocus()
         }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (notes.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Button(onClick = onImportFromPhone) { Text("Import from phone") }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(flowName, isCollectionsFlow) {
+                        detectTapGestures(onLongPress = { onLongPressExit() })
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                if (isCollectionsFlow) {
+                    Text(
+                        text = "Collections is empty Long press to return",
+                        color = Color.White.copy(alpha = 0.92f),
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    Button(onClick = onImportFromPhone) { Text("Import from phone") }
+                }
             }
             return@Box
         }
@@ -420,6 +705,9 @@ private fun NotesScreen(
                 }
                 .pointerInput(note.id, showTray) {
                     detectTapGestures(
+                        onLongPress = {
+                            if (!showTray) onLongPressExit()
+                        },
                         onDoubleTap = { showTray = !showTray },
                         onTap = {
                             if (!showTray) {
@@ -483,7 +771,7 @@ private fun NotesScreen(
                 //val useScrollableTopLayout = !fitsAtSelectedSize
                 val useScrollableTopLayout = needsScroll
                 Text(
-                    text = "${safeIndex + 1}/${notes.size} • ${label}",
+                    text = "$flowName • ${safeIndex + 1}/${notes.size} • ${label}",
                     fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.86f),
                     textAlign = TextAlign.Center,
@@ -533,6 +821,16 @@ private fun NotesScreen(
                 }
             }
         }
+
+        Text(
+            text = if (isInCollection) "★" else "☆",
+            color = if (isInCollection) Color(0xFFFFD54F) else Color.White,
+            fontSize = starFontSize,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = starBottomPadding)
+                .clickable { onToggleCollection() }
+        )
 
         if (trayScrimAlpha > 0.001f) {
             Box(
@@ -584,6 +882,17 @@ private fun NotesScreen(
         }
     }
 }
+
+private enum class AppScreen {
+    CardFlows,
+    Notes
+}
+
+private data class CardFlow(
+    val id: Long,
+    val name: String,
+    val notes: List<StickyNote>
+)
 
 private enum class TextScaleOption(
     val label: String,
@@ -745,6 +1054,14 @@ private class PhoneImportClient(context: Context) {
     }
 }
 
+private fun organizeImportedNotes(imported: List<StickyNote>): List<StickyNote> {
+    return imported
+        .groupBy { "${it.flowId}|${it.flowName}" }
+        .toSortedMap(compareBy<String> { it.substringAfter("|") }.thenBy { it.substringBefore("|").toLongOrNull() ?: 0L })
+        .values
+        .flatMap { flowNotes -> flowNotes.sortedBy { it.id } }
+}
+
 private fun parseManualAddress(value: String): ConnectionTarget? {
     val trimmed = value.trim()
     if (!trimmed.contains(':')) return null
@@ -842,6 +1159,127 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         rotation = 0.4,
         front = NoteSide(label = "front", text = "Reflect in three lines"),
         back = NoteSide(label = "back", text = "At night, write three short lines: one win from today, one lesson you learned, and one tiny improvement for tomorrow. This keeps progress visible and sustainable.")
+    ),
+    StickyNote(
+        id = 109,
+        flowId = 2,
+        flowName = "Focus",
+        cardId = 22,
+        cardTitle = "Planning",
+        color = "#6F6BFF",
+        rotation = -0.2,
+        front = NoteSide(label = "front", text = "Pick one MIT"),
+        back = NoteSide(label = "back", text = "Before opening chat apps, write one most important task and block 40 minutes for it.")
+    ),
+    StickyNote(
+        id = 110,
+        flowId = 3,
+        flowName = "Health",
+        cardId = 32,
+        cardTitle = "Hydration",
+        color = "#32B88A",
+        rotation = 0.9,
+        front = NoteSide(label = "front", text = "Refill water bottle"),
+        back = NoteSide(label = "back", text = "Keep a 600ml bottle nearby and refill twice during the workday.")
+    ),
+    StickyNote(
+        id = 111,
+        flowId = 4,
+        flowName = "Learning",
+        cardId = 42,
+        cardTitle = "Reading",
+        color = "#E0933A",
+        rotation = -0.6,
+        front = NoteSide(label = "front", text = "Read 8 pages"),
+        back = NoteSide(label = "back", text = "Read just eight pages and write one sentence about what stood out.")
+    ),
+    StickyNote(
+        id = 112,
+        flowId = 7,
+        flowName = "Finance",
+        cardId = 71,
+        cardTitle = "Budget",
+        color = "#3EA8D8",
+        rotation = 0.2,
+        front = NoteSide(label = "front", text = "Log today's expense"),
+        back = NoteSide(label = "back", text = "Track at least one purchase each day so spending stays visible.")
+    ),
+    StickyNote(
+        id = 113,
+        flowId = 7,
+        flowName = "Finance",
+        cardId = 72,
+        cardTitle = "Savings",
+        color = "#2E87C4",
+        rotation = -0.4,
+        front = NoteSide(label = "front", text = "Auto-transfer 5%"),
+        back = NoteSide(label = "back", text = "Set an automatic transfer to savings right after income arrives.")
+    ),
+    StickyNote(
+        id = 114,
+        flowId = 8,
+        flowName = "Home",
+        cardId = 81,
+        cardTitle = "Declutter",
+        color = "#B46E3F",
+        rotation = 0.5,
+        front = NoteSide(label = "front", text = "Clear one surface"),
+        back = NoteSide(label = "back", text = "Choose one small area and reset it fully in under ten minutes.")
+    ),
+    StickyNote(
+        id = 115,
+        flowId = 8,
+        flowName = "Home",
+        cardId = 82,
+        cardTitle = "Maintenance",
+        color = "#C48D54",
+        rotation = -1.1,
+        front = NoteSide(label = "front", text = "Do one tiny fix"),
+        back = NoteSide(label = "back", text = "Repair one minor issue today to avoid bigger chores later.")
+    ),
+    StickyNote(
+        id = 116,
+        flowId = 9,
+        flowName = "Travel",
+        cardId = 91,
+        cardTitle = "Checklist",
+        color = "#4C8BFF",
+        rotation = 0.3,
+        front = NoteSide(label = "front", text = "Update packing list"),
+        back = NoteSide(label = "back", text = "Add one frequently forgotten item while it's still fresh in memory.")
+    ),
+    StickyNote(
+        id = 117,
+        flowId = 9,
+        flowName = "Travel",
+        cardId = 92,
+        cardTitle = "Documents",
+        color = "#6B9DFF",
+        rotation = -0.9,
+        front = NoteSide(label = "front", text = "Check passport expiry"),
+        back = NoteSide(label = "back", text = "Confirm key document expiry dates at least six months ahead.")
+    ),
+    StickyNote(
+        id = 118,
+        flowId = 10,
+        flowName = "Creativity",
+        cardId = 101,
+        cardTitle = "Sketch",
+        color = "#9E68E1",
+        rotation = 0.7,
+        front = NoteSide(label = "front", text = "Draw 1 thumbnail"),
+        back = NoteSide(label = "back", text = "Spend five minutes sketching one rough idea without judging quality.")
+    ),
+    StickyNote(
+        id = 119,
+        flowId = 10,
+        flowName = "Creativity",
+        cardId = 102,
+        cardTitle = "Capture",
+        color = "#B07DF0",
+        rotation = -0.5,
+        front = NoteSide(label = "front", text = "Capture 3 ideas"),
+        back = NoteSide(label = "back", text = "Write three imperfect ideas quickly; quantity unlocks quality.")
     )
 )
 
