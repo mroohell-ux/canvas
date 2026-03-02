@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -83,6 +84,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -417,7 +419,9 @@ private fun CardFlowsScreen(
     val scope = rememberCoroutineScope()
     val dragOffset = remember { Animatable(0f) }
     val density = LocalDensity.current
-    val spacingPx = with(density) { 92.dp.toPx() }
+    val configuration = LocalConfiguration.current
+    val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
+    val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
 
     Box(
         modifier = Modifier
@@ -455,36 +459,45 @@ private fun CardFlowsScreen(
         fun scaleFor(offset: Float): Float = 0.80f + (centerProgress(offset) * 0.28f)
         fun alphaFor(offset: Float): Float = 0.28f + (centerProgress(offset) * 0.72f)
 
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "Flow ${selectedIndex + 1}/${flows.size}",
-                fontSize = 11.sp,
-                color = Color.White.copy(alpha = 0.8f)
-            )
-            Box(modifier = Modifier.fillMaxWidth().height(148.dp), contentAlignment = Alignment.Center) {
-                flows.forEachIndexed { index, flow ->
-                    val targetOffset by animateFloatAsState(
-                        targetValue = ((index - selectedIndex) * spacingPx) + dragOffset.value,
-                        animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
-                        label = "flowOffset$index"
-                    )
-                    val emphasisScale = scaleFor(targetOffset)
-                    val emphasisAlpha = alphaFor(targetOffset)
-                    FlowCircle(
-                        flow = flow,
-                        selected = index == selectedIndex,
-                        onClick = {
-                            if (index == selectedIndex) onOpenSelectedFlow() else onSelectedIndexChange(index)
-                        },
-                        emphasisScale = emphasisScale,
-                        emphasisAlpha = emphasisAlpha,
-                        modifier = Modifier
-                            .zIndex(emphasisScale)
-                            .offset { IntOffset(targetOffset.roundToInt(), 0) }
-                    )
+        BoxWithConstraints {
+            val minScreenSize = minOf(maxWidth, maxHeight)
+            val selectedCircleSize = (minScreenSize * 0.40f).coerceIn(100.dp, 132.dp)
+            val sideCircleSize = (selectedCircleSize * 0.78f).coerceIn(78.dp, 112.dp)
+            val railHeight = (selectedCircleSize * 1.32f).coerceIn(140.dp, 192.dp)
+            val adaptiveSpacingPx = with(density) { (selectedCircleSize * 0.80f).toPx() }
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Flow ${selectedIndex + 1}/${flows.size}",
+                    fontSize = 11.sp,
+                    color = Color.White.copy(alpha = 0.8f)
+                )
+                Box(modifier = Modifier.fillMaxWidth().height(railHeight), contentAlignment = Alignment.Center) {
+                    flows.forEachIndexed { index, flow ->
+                        val targetOffset by animateFloatAsState(
+                            targetValue = ((index - selectedIndex) * adaptiveSpacingPx) + dragOffset.value,
+                            animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
+                            label = "flowOffset$index"
+                        )
+                        val emphasisScale = scaleFor(targetOffset)
+                        val emphasisAlpha = alphaFor(targetOffset)
+                        FlowCircle(
+                            flow = flow,
+                            selected = index == selectedIndex,
+                            circleSize = if (index == selectedIndex) selectedCircleSize else sideCircleSize,
+                            onClick = {
+                                if (index == selectedIndex) onOpenSelectedFlow() else onSelectedIndexChange(index)
+                            },
+                            emphasisScale = emphasisScale,
+                            emphasisAlpha = emphasisAlpha,
+                            modifier = Modifier
+                                .zIndex(emphasisScale)
+                                .offset { IntOffset(targetOffset.roundToInt(), 0) }
+                        )
+                    }
                 }
             }
         }
@@ -495,12 +508,13 @@ private fun CardFlowsScreen(
 private fun FlowCircle(
     flow: CardFlow,
     selected: Boolean,
+    circleSize: Dp,
     onClick: () -> Unit,
     emphasisScale: Float,
     emphasisAlpha: Float,
     modifier: Modifier = Modifier
 ) {
-    val size = if (selected) 120.dp else 94.dp
+    val size = circleSize
     val circleAlpha = emphasisAlpha
     Box(
         modifier = modifier
