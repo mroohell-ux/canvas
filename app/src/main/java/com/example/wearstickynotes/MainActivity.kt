@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
@@ -35,8 +36,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -391,7 +394,8 @@ private fun CardFlowsScreen(
     onSelectedIndexChange: (Int) -> Unit,
     onOpenSelectedFlow: () -> Unit
 ) {
-    var dragSum by remember { mutableFloatStateOf(0f) }
+    val scope = rememberCoroutineScope()
+    val dragOffset = remember { Animatable(0f) }
 
     Box(
         modifier = Modifier
@@ -399,16 +403,20 @@ private fun CardFlowsScreen(
             .padding(10.dp)
             .pointerInput(flows.size, selectedIndex) {
                 detectHorizontalDragGestures(
-                    onHorizontalDrag = { _, amount -> dragSum += amount },
-                    onDragEnd = {
-                        if (dragSum > 32f) {
-                            onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
-                        } else if (dragSum < -32f) {
-                            onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0)))
-                        }
-                        dragSum = 0f
+                    onHorizontalDrag = { _, amount ->
+                        scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
                     },
-                    onDragCancel = { dragSum = 0f }
+                    onDragEnd = {
+                        val threshold = 40f
+                        when {
+                            dragOffset.value > threshold -> onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
+                            dragOffset.value < -threshold -> onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0)))
+                        }
+                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+                    },
+                    onDragCancel = {
+                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+                    }
                 )
             },
         contentAlignment = Alignment.Center
@@ -422,18 +430,35 @@ private fun CardFlowsScreen(
         val selected = flows[selectedIndex]
         val next = flows.getOrNull(selectedIndex + 1)
 
+        val spacingPx = with(LocalDensity.current) { 96.dp.toPx() }
+        val previousOffset by animateFloatAsState((-spacingPx + dragOffset.value), spring(dampingRatio = 0.82f, stiffness = 360f), label = "previousOffset")
+        val selectedOffset by animateFloatAsState(dragOffset.value, spring(dampingRatio = 0.82f, stiffness = 360f), label = "selectedOffset")
+        val nextOffset by animateFloatAsState((spacingPx + dragOffset.value), spring(dampingRatio = 0.82f, stiffness = 360f), label = "nextOffset")
+
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("Card Flows", color = Color.White.copy(alpha = 0.85f))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                FlowCircle(flow = previous, selected = false, onClick = {})
-                FlowCircle(flow = selected, selected = true, onClick = onOpenSelectedFlow)
-                FlowCircle(flow = next, selected = false, onClick = {})
+            Box(modifier = Modifier.fillMaxWidth().height(132.dp), contentAlignment = Alignment.Center) {
+                FlowCircle(
+                    flow = previous,
+                    selected = false,
+                    onClick = {},
+                    modifier = Modifier.offset { IntOffset(previousOffset.roundToInt(), 0) }
+                )
+                FlowCircle(
+                    flow = selected,
+                    selected = true,
+                    onClick = onOpenSelectedFlow,
+                    modifier = Modifier.offset { IntOffset(selectedOffset.roundToInt(), 0) }
+                )
+                FlowCircle(
+                    flow = next,
+                    selected = false,
+                    onClick = {},
+                    modifier = Modifier.offset { IntOffset(nextOffset.roundToInt(), 0) }
+                )
             }
             Text("Swipe to browse • Tap center to open", fontSize = 10.sp, color = Color.White.copy(alpha = 0.7f))
         }
@@ -441,16 +466,21 @@ private fun CardFlowsScreen(
 }
 
 @Composable
-private fun FlowCircle(flow: CardFlow?, selected: Boolean, onClick: () -> Unit) {
+private fun FlowCircle(
+    flow: CardFlow?,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val size = if (selected) 108.dp else 82.dp
     val alpha = if (flow == null) 0f else if (selected) 1f else 0.65f
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(size)
             .clip(RoundedCornerShape(999.dp))
             .background(Color(0xFF2A3744).copy(alpha = alpha))
-            .padding(12.dp)
-            .then(Modifier),
+            .then(if (selected && flow != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(12.dp),
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -459,15 +489,13 @@ private fun FlowCircle(flow: CardFlow?, selected: Boolean, onClick: () -> Unit) 
                 .clip(RoundedCornerShape(999.dp))
                 .background(Color(0xFF3A4B5C).copy(alpha = alpha))
                 .padding(8.dp)
-                .then(Modifier)
         ) {
             Text(
                 text = flow?.name.orEmpty(),
                 textAlign = TextAlign.Center,
                 fontSize = if (selected) 14.sp else 11.sp,
                 modifier = Modifier
-                    .padding(horizontal = 10.dp, vertical = 20.dp)
-                    .let { if (selected && flow != null) it.clickable(onClick = onClick) else it },
+                    .padding(horizontal = 10.dp, vertical = 20.dp),
                 color = Color.White.copy(alpha = if (selected) 1f else 0.85f)
             )
         }
