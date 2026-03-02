@@ -445,9 +445,11 @@ private fun CardFlowsScreen(
             return@Box
         }
 
-        val previous = flows.getOrNull(selectedIndex - 1)
+        val previousIndex = if (flows.size <= 1) selectedIndex else (selectedIndex - 1 + flows.size) % flows.size
+        val nextIndex = if (flows.size <= 1) selectedIndex else (selectedIndex + 1) % flows.size
+        val previous = flows.getOrNull(previousIndex)
         val selected = flows[selectedIndex]
-        val next = flows.getOrNull(selectedIndex + 1)
+        val next = flows.getOrNull(nextIndex)
 
         val spacingPx = with(LocalDensity.current) { 84.dp.toPx() }
         val previousOffset by animateFloatAsState((-spacingPx + dragOffset.value), spring(dampingRatio = 0.82f, stiffness = 360f), label = "previousOffset")
@@ -497,12 +499,6 @@ private fun CardFlowsScreen(
                     modifier = Modifier.offset { IntOffset(nextOffset.roundToInt(), 0) }
                 )
             }
-            Text(
-                "Only 3 circles are shown at once • Swipe to browse • Tap center to open",
-                fontSize = 10.sp,
-                color = Color.White.copy(alpha = 0.7f),
-                textAlign = TextAlign.Center
-            )
         }
     }
 }
@@ -1089,6 +1085,127 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         rotation = 0.4,
         front = NoteSide(label = "front", text = "Reflect in three lines"),
         back = NoteSide(label = "back", text = "At night, write three short lines: one win from today, one lesson you learned, and one tiny improvement for tomorrow. This keeps progress visible and sustainable.")
+    ),
+    StickyNote(
+        id = 109,
+        flowId = 2,
+        flowName = "Focus",
+        cardId = 22,
+        cardTitle = "Planning",
+        color = "#6F6BFF",
+        rotation = -0.2,
+        front = NoteSide(label = "front", text = "Pick one MIT"),
+        back = NoteSide(label = "back", text = "Before opening chat apps, write one most important task and block 40 minutes for it.")
+    ),
+    StickyNote(
+        id = 110,
+        flowId = 3,
+        flowName = "Health",
+        cardId = 32,
+        cardTitle = "Hydration",
+        color = "#32B88A",
+        rotation = 0.9,
+        front = NoteSide(label = "front", text = "Refill water bottle"),
+        back = NoteSide(label = "back", text = "Keep a 600ml bottle nearby and refill twice during the workday.")
+    ),
+    StickyNote(
+        id = 111,
+        flowId = 4,
+        flowName = "Learning",
+        cardId = 42,
+        cardTitle = "Reading",
+        color = "#E0933A",
+        rotation = -0.6,
+        front = NoteSide(label = "front", text = "Read 8 pages"),
+        back = NoteSide(label = "back", text = "Read just eight pages and write one sentence about what stood out.")
+    ),
+    StickyNote(
+        id = 112,
+        flowId = 7,
+        flowName = "Finance",
+        cardId = 71,
+        cardTitle = "Budget",
+        color = "#3EA8D8",
+        rotation = 0.2,
+        front = NoteSide(label = "front", text = "Log today's expense"),
+        back = NoteSide(label = "back", text = "Track at least one purchase each day so spending stays visible.")
+    ),
+    StickyNote(
+        id = 113,
+        flowId = 7,
+        flowName = "Finance",
+        cardId = 72,
+        cardTitle = "Savings",
+        color = "#2E87C4",
+        rotation = -0.4,
+        front = NoteSide(label = "front", text = "Auto-transfer 5%"),
+        back = NoteSide(label = "back", text = "Set an automatic transfer to savings right after income arrives.")
+    ),
+    StickyNote(
+        id = 114,
+        flowId = 8,
+        flowName = "Home",
+        cardId = 81,
+        cardTitle = "Declutter",
+        color = "#B46E3F",
+        rotation = 0.5,
+        front = NoteSide(label = "front", text = "Clear one surface"),
+        back = NoteSide(label = "back", text = "Choose one small area and reset it fully in under ten minutes.")
+    ),
+    StickyNote(
+        id = 115,
+        flowId = 8,
+        flowName = "Home",
+        cardId = 82,
+        cardTitle = "Maintenance",
+        color = "#C48D54",
+        rotation = -1.1,
+        front = NoteSide(label = "front", text = "Do one tiny fix"),
+        back = NoteSide(label = "back", text = "Repair one minor issue today to avoid bigger chores later.")
+    ),
+    StickyNote(
+        id = 116,
+        flowId = 9,
+        flowName = "Travel",
+        cardId = 91,
+        cardTitle = "Checklist",
+        color = "#4C8BFF",
+        rotation = 0.3,
+        front = NoteSide(label = "front", text = "Update packing list"),
+        back = NoteSide(label = "back", text = "Add one frequently forgotten item while it's still fresh in memory.")
+    ),
+    StickyNote(
+        id = 117,
+        flowId = 9,
+        flowName = "Travel",
+        cardId = 92,
+        cardTitle = "Documents",
+        color = "#6B9DFF",
+        rotation = -0.9,
+        front = NoteSide(label = "front", text = "Check passport expiry"),
+        back = NoteSide(label = "back", text = "Confirm key document expiry dates at least six months ahead.")
+    ),
+    StickyNote(
+        id = 118,
+        flowId = 10,
+        flowName = "Creativity",
+        cardId = 101,
+        cardTitle = "Sketch",
+        color = "#9E68E1",
+        rotation = 0.7,
+        front = NoteSide(label = "front", text = "Draw 1 thumbnail"),
+        back = NoteSide(label = "back", text = "Spend five minutes sketching one rough idea without judging quality.")
+    ),
+    StickyNote(
+        id = 119,
+        flowId = 10,
+        flowName = "Creativity",
+        cardId = 102,
+        cardTitle = "Capture",
+        color = "#B07DF0",
+        rotation = -0.5,
+        front = NoteSide(label = "front", text = "Capture 3 ideas"),
+        back = NoteSide(label = "back", text = "Write three imperfect ideas quickly; quantity unlocks quality.")
     )
 )
 
