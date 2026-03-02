@@ -121,8 +121,24 @@ class MainActivity : ComponentActivity() {
 private fun StickyNotesApp(importer: PhoneImportClient) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    val prefs = remember(context) {
+        context.applicationContext.getSharedPreferences("sticky_prefs", Context.MODE_PRIVATE)
+    }
+    val storageJson = remember { Json { ignoreUnknownKeys = true } }
+
+    val initialNotes = remember(prefs, storageJson) {
+        runCatching {
+            prefs.getString("notes_payload", null)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { storageJson.decodeFromString<List<StickyNote>>(it) }
+        }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }
+            ?: defaultStickyNotes()
+    }
+
     val notes = remember {
-        mutableStateListOf<StickyNote>().apply { addAll(defaultStickyNotes()) }
+        mutableStateListOf<StickyNote>().apply { addAll(initialNotes) }
     }
 
     var appScreen by remember { mutableStateOf(AppScreen.CardFlows) }
@@ -133,8 +149,12 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     var services by remember { mutableStateOf(emptyList<DiscoveredService>()) }
     var manualAddress by remember { mutableStateOf("") }
 
-    val prefs = remember(context) {
-        context.applicationContext.getSharedPreferences("sticky_prefs", Context.MODE_PRIVATE)
+    val initialCollectionIds = remember(prefs, storageJson) {
+        runCatching {
+            prefs.getString("collection_note_ids", null)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { storageJson.decodeFromString<Set<Long>>(it) }
+        }.getOrNull().orEmpty()
     }
     val initialShuffleMode = remember(prefs) {
         prefs.getBoolean("shuffle_mode", false)
@@ -149,7 +169,11 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     var shuffleMode by remember { mutableStateOf(initialShuffleMode) }
     var textScale by remember { mutableStateOf(initialTextScale) }
     val noteSideState = remember { mutableStateMapOf<Long, Boolean>() }
-    val collectionNoteState = remember { mutableStateMapOf<Long, Boolean>() }
+    val collectionNoteState = remember {
+        mutableStateMapOf<Long, Boolean>().apply {
+            initialCollectionIds.forEach { id -> this[id] = true }
+        }
+    }
 
     val groupedFlows = notes.groupBy { "${it.flowId}|${it.flowName}" }
         .map { (_, flowNotes) ->
@@ -198,12 +222,31 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         prefs.edit().putString("text_scale", textScale.storageKey).apply()
     }
 
+    LaunchedEffect(notes.toList()) {
+        prefs.edit()
+            .putString("notes_payload", storageJson.encodeToString(notes.toList()))
+            .apply()
+    }
+
+    LaunchedEffect(notes.size, collectionNoteState.toMap()) {
+        val validIds = notes.asSequence().map { it.id }.toSet()
+        val selectedCollectionIds = collectionNoteState
+            .asSequence()
+            .filter { it.value && it.key in validIds }
+            .map { it.key }
+            .toSet()
+
+        prefs.edit()
+            .putString("collection_note_ids", storageJson.encodeToString(selectedCollectionIds))
+            .apply()
+    }
+
     fun onImported(imported: List<StickyNote>) {
         val organized = organizeImportedNotes(imported)
         notes.clear()
         notes.addAll(organized)
         noteSideState.clear()
-        collectionNoteState.clear()
+        collectionNoteState.keys.retainAll(organized.map { it.id }.toSet())
         selectedFlowIndex = 0
         flowLastOpenedNoteIndex.clear()
         appScreen = AppScreen.CardFlows
@@ -433,16 +476,42 @@ private fun CardFlowsScreen(
 ) {
     val scope = rememberCoroutineScope()
     val dragOffset = remember { Animatable(0f) }
+    var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
+    val focusRequester = remember { FocusRequester() }
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
     val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
     var dragStartedAtMs by remember { mutableLongStateOf(0L) }
 
+    LaunchedEffect(flows.size) {
+        if (flows.isNotEmpty()) {
+            focusRequester.requestFocus()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(10.dp)
+            .focusRequester(focusRequester)
+            .focusable()
+            .onRotaryScrollEvent {
+                var updated = rotaryAccumulator + it.verticalScrollPixels
+                when {
+                    updated > 25f -> {
+                        onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0)))
+                        updated = 0f
+                    }
+
+                    updated < -25f -> {
+                        onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
+                        updated = 0f
+                    }
+                }
+                rotaryAccumulator = updated
+                true
+            }
             .pointerInput(flows.size, selectedIndex) {
                 detectHorizontalDragGestures(
                     onHorizontalDrag = { _, amount ->
