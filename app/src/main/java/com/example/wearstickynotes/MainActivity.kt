@@ -80,7 +80,6 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
@@ -447,13 +446,13 @@ private fun CardFlowsScreen(
             return@Box
         }
 
-        val spacingPx = with(LocalDensity.current) { 86.dp.toPx() }
+        val spacingPx = with(LocalDensity.current) { 92.dp.toPx() }
 
         fun centerProgress(offset: Float): Float {
             return (1f - (abs(offset) / (spacingPx * 2.2f))).coerceIn(0f, 1f)
         }
 
-        fun scaleFor(offset: Float): Float = 0.74f + (centerProgress(offset) * 0.30f)
+        fun scaleFor(offset: Float): Float = 0.80f + (centerProgress(offset) * 0.28f)
         fun alphaFor(offset: Float): Float = 0.28f + (centerProgress(offset) * 0.72f)
 
         Column(
@@ -466,7 +465,7 @@ private fun CardFlowsScreen(
                 fontSize = 11.sp,
                 color = Color.White.copy(alpha = 0.8f)
             )
-            Box(modifier = Modifier.fillMaxWidth().height(132.dp), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.fillMaxWidth().height(148.dp), contentAlignment = Alignment.Center) {
                 flows.forEachIndexed { index, flow ->
                     val targetOffset by animateFloatAsState(
                         targetValue = ((index - selectedIndex) * spacingPx) + dragOffset.value,
@@ -502,7 +501,7 @@ private fun FlowCircle(
     emphasisAlpha: Float,
     modifier: Modifier = Modifier
 ) {
-    val size = if (selected) 108.dp else 84.dp
+    val size = if (selected) 120.dp else 94.dp
     val circleAlpha = emphasisAlpha
     Box(
         modifier = modifier
@@ -515,7 +514,7 @@ private fun FlowCircle(
             .clip(RoundedCornerShape(999.dp))
             .background(Color(0xFF2A3744))
             .clickable(onClick = onClick)
-            .padding(12.dp),
+            .padding(if (selected) 12.dp else 10.dp),
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -523,17 +522,15 @@ private fun FlowCircle(
                 .padding(2.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(Color(0xFF3A4B5C))
-                .padding(if (selected) 8.dp else 6.dp)
+                .padding(if (selected) 10.dp else 8.dp)
         ) {
             Text(
                 text = flow.name,
                 textAlign = TextAlign.Center,
-                fontSize = if (selected) 14.sp else 10.sp,
-                lineHeight = if (selected) 16.sp else 12.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                fontSize = if (selected) 11.sp else 9.sp,
+                lineHeight = if (selected) 13.sp else 11.sp,
                 modifier = Modifier
-                    .padding(horizontal = if (selected) 10.dp else 6.dp, vertical = if (selected) 20.dp else 8.dp),
+                    .padding(horizontal = if (selected) 8.dp else 5.dp, vertical = if (selected) 12.dp else 8.dp),
                 color = Color.White.copy(alpha = if (selected) 1f else 0.92f)
             )
         }
