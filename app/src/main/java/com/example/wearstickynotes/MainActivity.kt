@@ -1371,12 +1371,17 @@ private fun noteRadialGradient(note: StickyNote): Brush {
     val center = hsvColor(
         hue = hue,
         saturation = (hsv[1] * 0.68f + 0.10f).coerceIn(0.22f, 0.55f),
-        value = (hsv[2] * 0.86f + 0.04f).coerceIn(0.62f, 0.86f)
+        value = (hsv[2] * 0.80f + 0.03f).coerceIn(0.58f, 0.82f)
+    )
+    val innerMid = hsvColor(
+        hue = hue,
+        saturation = (hsv[1] * 0.70f + 0.11f).coerceIn(0.24f, 0.56f),
+        value = (hsv[2] * 0.66f + 0.01f).coerceIn(0.48f, 0.68f)
     )
     val mid = hsvColor(
         hue = hue,
-        saturation = (hsv[1] * 0.72f + 0.12f).coerceIn(0.26f, 0.58f),
-        value = (hsv[2] * 0.58f).coerceIn(0.42f, 0.62f)
+        saturation = (hsv[1] * 0.74f + 0.12f).coerceIn(0.28f, 0.60f),
+        value = (hsv[2] * 0.54f).coerceIn(0.40f, 0.58f)
     )
     val edge = hsvColor(
         hue = hue,
@@ -1387,7 +1392,8 @@ private fun noteRadialGradient(note: StickyNote): Brush {
     return Brush.radialGradient(
         colorStops = arrayOf(
             0.0f to center,
-            0.62f to mid,
+            0.40f to innerMid,
+            0.72f to mid,
             1.0f to edge
         )
     )
