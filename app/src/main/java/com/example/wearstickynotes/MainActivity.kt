@@ -598,7 +598,8 @@ private fun NotesScreen(
     )
 
     LaunchedEffect(notes.size, showTray) {
-        if (!showTray) {
+        if (!showTray && notes.isNotEmpty()) {
+            // Request focus only when the focusable note container is in composition.
             focusRequester.requestFocus()
         }
     }
