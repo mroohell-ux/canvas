@@ -153,7 +153,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         runCatching {
             prefs.getString("collection_note_ids", null)
                 ?.takeIf { it.isNotBlank() }
-                ?.let { storageJson.decodeFromString<Set<Long>>(it) }
+                ?.let { storageJson.decodeFromString<Set<String>>(it) }
         }.getOrNull().orEmpty()
     }
     val initialShuffleMode = remember(prefs) {
@@ -168,9 +168,9 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
     var shuffleMode by remember { mutableStateOf(initialShuffleMode) }
     var textScale by remember { mutableStateOf(initialTextScale) }
-    val noteSideState = remember { mutableStateMapOf<Long, Boolean>() }
+    val noteSideState = remember { mutableStateMapOf<String, Boolean>() }
     val collectionNoteState = remember {
-        mutableStateMapOf<Long, Boolean>().apply {
+        mutableStateMapOf<String, Boolean>().apply {
             initialCollectionIds.forEach { id -> this[id] = true }
         }
     }
@@ -667,7 +667,7 @@ private fun NotesScreen(
     rotaryAccumulator: Float,
     onRotaryAccumulatorChange: (Float) -> Unit,
     onSelectedIndexChange: (Int) -> Unit,
-    onFlip: (Long) -> Unit,
+    onFlip: (String) -> Unit,
     onLongPressExit: () -> Unit,
     isCollectionsFlow: Boolean,
     isInCollection: Boolean,
@@ -1128,7 +1128,12 @@ private fun organizeImportedNotes(imported: List<StickyNote>): List<StickyNote> 
         .groupBy { "${it.flowId}|${it.flowName}" }
         .toSortedMap(compareBy<String> { it.substringAfter("|") }.thenBy { it.substringBefore("|").toLongOrNull() ?: 0L })
         .values
-        .flatMap { flowNotes -> flowNotes.sortedBy { it.id } }
+        .flatMap { flowNotes ->
+            flowNotes.sortedWith(
+                compareBy<StickyNote> { it.id.toLongOrNull() ?: Long.MAX_VALUE }
+                    .thenBy { it.id }
+            )
+        }
 }
 
 private fun parseManualAddress(value: String): ConnectionTarget? {
@@ -1142,7 +1147,7 @@ private fun parseManualAddress(value: String): ConnectionTarget? {
 
 private fun defaultStickyNotes(): List<StickyNote> = listOf(
     StickyNote(
-        id = 101,
+        id = "101",
         flowId = 1,
         flowName = "Daily",
         cardId = 11,
@@ -1153,7 +1158,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Finish about 500ml water before your first coffee so your energy is steadier through the morning.Finish about 500ml water before your first coffee so your energy is steadier through the morning.Finish about 500ml water before your first coffee so your energy is steadier through the morning.Finish about 500ml water before your first coffee so your energy is steadier through the morning.")
     ),
     StickyNote(
-        id = 102,
+        id = "102",
         flowId = 1,
         flowName = "Daily",
         cardId = 12,
@@ -1164,7 +1169,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Slowly stretch your neck, shoulders, hamstrings, and calves for ten minutes to reduce stiffness after sitting.")
     ),
     StickyNote(
-        id = 103,
+        id = "103",
         flowId = 2,
         flowName = "Focus",
         cardId = 21,
@@ -1175,7 +1180,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Put your phone away and do one uninterrupted 25-minute block. Tiny wins build momentum faster than waiting for motivation.")
     ),
     StickyNote(
-        id = 104,
+        id = "104",
         flowId = 3,
         flowName = "Health",
         cardId = 31,
@@ -1186,7 +1191,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Try to go to sleep between 10:30 PM and 11:00 PM. Keep lights dim 30 minutes before bed to help melatonin rise.")
     ),
     StickyNote(
-        id = 105,
+        id = "105",
         flowId = 4,
         flowName = "Learning",
         cardId = 41,
@@ -1197,7 +1202,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Read each phrase out loud twice, then use it in a short sentence. Active recall beats passive rereading.")
     ),
     StickyNote(
-        id = 106,
+        id = "106",
         flowId = 5,
         flowName = "Career",
         cardId = 51,
@@ -1208,7 +1213,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Before Monday starts, define the top three outcomes for the week and translate each outcome into one concrete action you can finish in under one hour.")
     ),
     StickyNote(
-        id = 107,
+        id = "107",
         flowId = 5,
         flowName = "Career",
         cardId = 52,
@@ -1219,7 +1224,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "When posting an update, include context, current status, blockers, and the next step with an owner, so teammates can respond quickly without back-and-forth questions.")
     ),
     StickyNote(
-        id = 108,
+        id = "108",
         flowId = 6,
         flowName = "Mindset",
         cardId = 61,
@@ -1230,7 +1235,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "At night, write three short lines: one win from today, one lesson you learned, and one tiny improvement for tomorrow. This keeps progress visible and sustainable.")
     ),
     StickyNote(
-        id = 109,
+        id = "109",
         flowId = 2,
         flowName = "Focus",
         cardId = 22,
@@ -1241,7 +1246,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Before opening chat apps, write one most important task and block 40 minutes for it.")
     ),
     StickyNote(
-        id = 110,
+        id = "110",
         flowId = 3,
         flowName = "Health",
         cardId = 32,
@@ -1252,7 +1257,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Keep a 600ml bottle nearby and refill twice during the workday.")
     ),
     StickyNote(
-        id = 111,
+        id = "111",
         flowId = 4,
         flowName = "Learning",
         cardId = 42,
@@ -1263,7 +1268,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Read just eight pages and write one sentence about what stood out.")
     ),
     StickyNote(
-        id = 112,
+        id = "112",
         flowId = 7,
         flowName = "Finance",
         cardId = 71,
@@ -1274,7 +1279,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Track at least one purchase each day so spending stays visible.")
     ),
     StickyNote(
-        id = 113,
+        id = "113",
         flowId = 7,
         flowName = "Finance",
         cardId = 72,
@@ -1285,7 +1290,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Set an automatic transfer to savings right after income arrives.")
     ),
     StickyNote(
-        id = 114,
+        id = "114",
         flowId = 8,
         flowName = "Home",
         cardId = 81,
@@ -1296,7 +1301,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Choose one small area and reset it fully in under ten minutes.")
     ),
     StickyNote(
-        id = 115,
+        id = "115",
         flowId = 8,
         flowName = "Home",
         cardId = 82,
@@ -1307,7 +1312,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Repair one minor issue today to avoid bigger chores later.")
     ),
     StickyNote(
-        id = 116,
+        id = "116",
         flowId = 9,
         flowName = "Travel",
         cardId = 91,
@@ -1318,7 +1323,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Add one frequently forgotten item while it's still fresh in memory.")
     ),
     StickyNote(
-        id = 117,
+        id = "117",
         flowId = 9,
         flowName = "Travel",
         cardId = 92,
@@ -1329,7 +1334,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Confirm key document expiry dates at least six months ahead.")
     ),
     StickyNote(
-        id = 118,
+        id = "118",
         flowId = 10,
         flowName = "Creativity",
         cardId = 101,
@@ -1340,7 +1345,7 @@ private fun defaultStickyNotes(): List<StickyNote> = listOf(
         back = NoteSide(label = "back", text = "Spend five minutes sketching one rough idea without judging quality.")
     ),
     StickyNote(
-        id = 119,
+        id = "119",
         flowId = 10,
         flowName = "Creativity",
         cardId = 102,
@@ -1364,7 +1369,7 @@ private fun noteRadialGradient(note: StickyNote): Brush {
     val hsv = FloatArray(3)
     android.graphics.Color.colorToHSV(base.toArgb(), hsv)
 
-    val hueShift = ((note.id % 5).toInt() - 2) * 3f
+    val hueShift = (((abs(note.id.hashCode()) % 5) - 2) * 3f)
     val hue = (hsv[0] + hueShift + 360f) % 360f
 
     // Calm system-card styling: broad soft center + deep edge vignette.
@@ -1422,7 +1427,7 @@ private data class StickyNotesFile(
 
 @Serializable
 private data class StickyNote(
-    val id: Long,
+    val id: String,
     val flowId: Long,
     val flowName: String,
     val cardId: Long,

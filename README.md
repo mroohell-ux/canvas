@@ -47,7 +47,7 @@ Top-level `stickyNotes` array is imported with `Json { ignoreUnknownKeys = true 
   "generatedAt": 1739700000000,
   "stickyNotes": [
     {
-      "id": 101,
+      "id": "8f9b8a1c-2fd8-4f6d-9e9a-67a4c2d90111",
       "flowId": 1,
       "flowName": "Daily",
       "cardId": 11,
