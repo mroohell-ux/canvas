@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.rotary.onPreRotaryScrollEvent
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
@@ -106,10 +107,31 @@ import kotlin.math.roundToInt
 import kotlin.math.abs
 import kotlin.coroutines.resume
 
-private const val ROTARY_STEP_THRESHOLD = 10f
-private val SCREEN_EDGE_PADDING = 2.dp
-private val NOTE_EDGE_PADDING = 2.dp
-private val NOTE_CONTENT_VERTICAL_PADDING = 8.dp
+private const val ROTARY_STEP_THRESHOLD = 4f
+private val SCREEN_EDGE_PADDING = 0.dp
+private val NOTE_EDGE_PADDING = 0.dp
+private val NOTE_CONTENT_VERTICAL_PADDING = 4.dp
+
+private fun applyRotaryStep(
+    accumulator: Float,
+    delta: Float,
+    onForward: () -> Unit,
+    onBackward: () -> Unit
+): Float {
+    var updated = accumulator + delta
+    when {
+        updated > ROTARY_STEP_THRESHOLD -> {
+            onForward()
+            updated = 0f
+        }
+
+        updated < -ROTARY_STEP_THRESHOLD -> {
+            onBackward()
+            updated = 0f
+        }
+    }
+    return updated
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -501,20 +523,22 @@ private fun CardFlowsScreen(
             .padding(SCREEN_EDGE_PADDING)
             .focusRequester(focusRequester)
             .focusable()
+            .onPreRotaryScrollEvent {
+                rotaryAccumulator = applyRotaryStep(
+                    accumulator = rotaryAccumulator,
+                    delta = it.verticalScrollPixels,
+                    onForward = { onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0))) },
+                    onBackward = { onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0)) }
+                )
+                true
+            }
             .onRotaryScrollEvent {
-                var updated = rotaryAccumulator + it.verticalScrollPixels
-                when {
-                    updated > ROTARY_STEP_THRESHOLD -> {
-                        onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0)))
-                        updated = 0f
-                    }
-
-                    updated < -ROTARY_STEP_THRESHOLD -> {
-                        onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
-                        updated = 0f
-                    }
-                }
-                rotaryAccumulator = updated
+                rotaryAccumulator = applyRotaryStep(
+                    accumulator = rotaryAccumulator,
+                    delta = it.verticalScrollPixels,
+                    onForward = { onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0))) },
+                    onBackward = { onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0)) }
+                )
                 true
             }
             .pointerInput(flows.size, selectedIndex) {
@@ -742,20 +766,26 @@ private fun NotesScreen(
                 .fillMaxSize()
                 .focusRequester(focusRequester)
                 .focusable()
+                .onPreRotaryScrollEvent {
+                    onRotaryAccumulatorChange(
+                        applyRotaryStep(
+                            accumulator = rotaryAccumulator,
+                            delta = it.verticalScrollPixels,
+                            onForward = { onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex)) },
+                            onBackward = { onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0)) }
+                        )
+                    )
+                    true
+                }
                 .onRotaryScrollEvent {
-                    var updated = rotaryAccumulator + it.verticalScrollPixels
-                    when {
-                        updated > ROTARY_STEP_THRESHOLD -> {
-                            onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex))
-                            updated = 0f
-                        }
-
-                        updated < -ROTARY_STEP_THRESHOLD -> {
-                            onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0))
-                            updated = 0f
-                        }
-                    }
-                    onRotaryAccumulatorChange(updated)
+                    onRotaryAccumulatorChange(
+                        applyRotaryStep(
+                            accumulator = rotaryAccumulator,
+                            delta = it.verticalScrollPixels,
+                            onForward = { onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex)) },
+                            onBackward = { onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0)) }
+                        )
+                    )
                     true
                 }
                 .let { base ->
