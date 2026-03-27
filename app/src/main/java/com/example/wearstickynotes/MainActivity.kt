@@ -197,6 +197,14 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     var importState by remember { mutableStateOf<ImportState>(ImportState.Idle) }
     var services by remember { mutableStateOf(emptyList<DiscoveredService>()) }
     var manualAddress by remember { mutableStateOf("") }
+    val importDebugLog = remember { mutableStateListOf<String>() }
+
+    fun addImportLog(message: String) {
+        importDebugLog.add(message)
+        while (importDebugLog.size > 40) {
+            importDebugLog.removeAt(0)
+        }
+    }
 
     val initialCollectionIds = remember(prefs, storageJson) {
         runCatching {
@@ -318,27 +326,36 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
     fun startDiscovery() {
         scope.launch {
+            addImportLog("Scanning local network for _timescape._tcp services…")
             importState = ImportState.Searching
-            val found = importer.discoverServices(timeoutMs = 8_000)
+            val found = importer.discoverServices(
+                timeoutMs = 8_000,
+                onLog = { addImportLog(it) }
+            )
             services = found
+            addImportLog("Discovery finished. Found ${found.size} service(s).")
             importState = ImportState.DeviceList(found)
         }
     }
 
     fun runImport(target: ConnectionTarget) {
         scope.launch {
+            addImportLog("Connecting to ${target.host}:${target.port} …")
             importState = ImportState.RequestingApproval(target)
             val result = importer.importFromTarget(
                 target = target,
                 clientName = "Wear ${android.os.Build.MODEL}",
                 onWaiting = { importState = ImportState.Waiting },
-                onDownloading = { importState = ImportState.Downloading }
+                onDownloading = { importState = ImportState.Downloading },
+                onLog = { addImportLog(it) }
             )
 
             result.onSuccess { imported ->
+                addImportLog("Import success. Received ${imported.size} notes.")
                 onImported(imported)
                 Toast.makeText(context, "Imported ${imported.size} notes", Toast.LENGTH_SHORT).show()
             }.onFailure {
+                addImportLog("Import failed: ${it.message ?: "Unknown error"}")
                 importState = ImportState.Failed(it.message ?: "Unknown error")
             }
         }
@@ -352,24 +369,30 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         ImportState.Downloading,
         is ImportState.Imported,
         is ImportState.Failed -> {
-            ImportFlowScreen(
-                state = state,
-                services = services,
-                manualAddress = manualAddress,
-                onManualAddressChange = { manualAddress = it },
-                onDiscover = { startDiscovery() },
-                onSelectService = { runImport(ConnectionTarget(it.host, it.port)) },
-                onManualConnect = {
-                    val parsed = parseManualAddress(manualAddress)
-                    if (parsed == null) {
-                        importState = ImportState.Failed("Use format IP:port")
-                    } else {
-                        runImport(parsed)
+                ImportFlowScreen(
+                    state = state,
+                    services = services,
+                    debugLog = importDebugLog.toList(),
+                    manualAddress = manualAddress,
+                    onManualAddressChange = { manualAddress = it },
+                    onDiscover = { startDiscovery() },
+                    onSelectService = { runImport(ConnectionTarget(it.host, it.port)) },
+                    onManualConnect = {
+                        val parsed = parseManualAddress(manualAddress)
+                        if (parsed == null) {
+                            addImportLog("Manual connect input is invalid: \"$manualAddress\"")
+                            importState = ImportState.Failed("Use format IP:port")
+                        } else {
+                            addImportLog("Manual connect requested for ${parsed.host}:${parsed.port}")
+                            runImport(parsed)
+                        }
+                    },
+                    onClose = {
+                        addImportLog("Import dialog closed.")
+                        importState = ImportState.Idle
                     }
-                },
-                onClose = { importState = ImportState.Idle }
-            )
-        }
+                )
+            }
 
         ImportState.Idle -> {
             AnimatedContent(
@@ -448,6 +471,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 private fun ImportFlowScreen(
     state: ImportState,
     services: List<DiscoveredService>,
+    debugLog: List<String>,
     manualAddress: String,
     onManualAddressChange: (String) -> Unit,
     onDiscover: () -> Unit,
@@ -525,6 +549,29 @@ private fun ImportFlowScreen(
                 Button(onClick = onManualConnect) { Text("Manual connect") }
                 Button(onClick = onDiscover) { Text("Search again") }
                 Button(onClick = onClose) { Text("Cancel") }
+            }
+
+            if (debugLog.isNotEmpty()) {
+                Text("Debug log", color = Color.White.copy(alpha = 0.9f), fontSize = 11.sp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xCC111111))
+                        .padding(8.dp)
+                        .height(120.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    debugLog.takeLast(20).forEach { line ->
+                        Text(
+                            text = "• $line",
+                            color = Color(0xFFE0E0E0),
+                            fontSize = 10.sp,
+                            lineHeight = 12.sp
+                        )
+                    }
+                }
             }
         }
     }
@@ -1118,21 +1165,34 @@ private class PhoneImportClient(context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient.Builder().build()
 
-    suspend fun discoverServices(timeoutMs: Long): List<DiscoveredService> = withContext(Dispatchers.IO) {
+    suspend fun discoverServices(
+        timeoutMs: Long,
+        onLog: (String) -> Unit = {}
+    ): List<DiscoveredService> = withContext(Dispatchers.IO) {
         val found = ConcurrentHashMap<String, DiscoveredService>()
         val listener = object : NsdManager.DiscoveryListener {
-            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
-            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
-            override fun onDiscoveryStarted(serviceType: String) = Unit
-            override fun onDiscoveryStopped(serviceType: String) = Unit
+            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+                onLog("Discovery start failed (code=$errorCode).")
+            }
+            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
+                onLog("Discovery stop failed (code=$errorCode).")
+            }
+            override fun onDiscoveryStarted(serviceType: String) {
+                onLog("Discovery started for $serviceType.")
+            }
+            override fun onDiscoveryStopped(serviceType: String) {
+                onLog("Discovery stopped.")
+            }
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                 if (serviceInfo.serviceType != "_timescape._tcp.") return
+                onLog("Service found: ${serviceInfo.serviceName}. Resolving…")
                 Thread {
                     runCatching {
                         kotlinx.coroutines.runBlocking {
                             resolve(serviceInfo)?.let { resolved ->
                                 found["${resolved.host}:${resolved.port}"] = resolved
+                                onLog("Resolved ${resolved.displayName} (${resolved.host}:${resolved.port}).")
                             }
                         }
                     }
@@ -1177,31 +1237,38 @@ private class PhoneImportClient(context: Context) {
         target: ConnectionTarget,
         clientName: String,
         onWaiting: () -> Unit,
-        onDownloading: () -> Unit
+        onDownloading: () -> Unit,
+        onLog: (String) -> Unit = {}
     ): Result<List<StickyNote>> = withContext(Dispatchers.IO) {
         runCatching {
             val base = "http://${target.host}:${target.port}"
+            onLog("Using base URL: $base")
 
             // Optional, ignore failures
             runCatching {
                 val metaRequest = Request.Builder().url("$base/meta").get().build()
                 client.newCall(metaRequest).execute().close()
+                onLog("Optional /meta check completed.")
             }
 
-            val sessionId = requestSession(base, clientName)
+            val sessionId = requestSession(base, clientName, onLog)
+            onLog("Session requested: $sessionId")
             onWaiting()
-            val token = pollSession(base, sessionId)
+            onLog("Waiting for phone approval…")
+            val token = pollSession(base, sessionId, onLog)
             onDownloading()
+            onLog("Approval received. Downloading export…")
             val exportRequest = Request.Builder().url("$base/export?token=$token").get().build()
             val payload = client.newCall(exportRequest).execute().use { response ->
                 if (!response.isSuccessful) error("Export failed (${response.code})")
                 response.body?.string().orEmpty()
             }
+            onLog("Export downloaded (${payload.length} bytes). Parsing JSON…")
             json.decodeFromString<StickyNotesFile>(payload).stickyNotes
         }
     }
 
-    private fun requestSession(base: String, clientName: String): String {
+    private fun requestSession(base: String, clientName: String, onLog: (String) -> Unit): String {
         val body = json.encodeToString(
             SessionRequest(
                 clientId = UUID.randomUUID().toString(),
@@ -1209,6 +1276,7 @@ private class PhoneImportClient(context: Context) {
             )
         ).toRequestBody("application/json".toMediaType())
 
+        onLog("POST $base/session/request")
         val req = Request.Builder().url("$base/session/request").post(body).build()
         val res = client.newCall(req).execute().use { response ->
             if (!response.isSuccessful) error("Session request failed (${response.code})")
@@ -1217,16 +1285,18 @@ private class PhoneImportClient(context: Context) {
         return json.decodeFromString<SessionRequestResponse>(res).sessionId
     }
 
-    private suspend fun pollSession(base: String, sessionId: String): String {
+    private suspend fun pollSession(base: String, sessionId: String, onLog: (String) -> Unit): String {
         val timeoutMs = 30_000L
         val start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < timeoutMs) {
+            onLog("GET $base/session/status?sessionId=$sessionId")
             val req = Request.Builder().url("$base/session/status?sessionId=$sessionId").get().build()
             val body = client.newCall(req).execute().use { response ->
                 if (!response.isSuccessful) error("Status failed (${response.code})")
                 response.body?.string().orEmpty()
             }
             val status = json.decodeFromString<SessionStatusResponse>(body)
+            onLog("Phone status: ${status.status}")
             when (status.status.uppercase()) {
                 "APPROVED" -> return status.token ?: error("Missing token")
                 "DENIED" -> error("Denied on phone")
