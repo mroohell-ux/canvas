@@ -68,6 +68,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
@@ -357,6 +358,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                 onImported(imported)
                 Toast.makeText(context, "Imported ${imported.size} notes", Toast.LENGTH_SHORT).show()
             }.onFailure {
+                addImportLog(it.stackTraceToString())
                 addImportLog("Import failed: ${it.message ?: "Unknown error"}")
                 importState = ImportState.Failed(it.message ?: "Unknown error")
             }
@@ -831,16 +833,19 @@ private fun NotesScreen(
     LaunchedEffect(notes.size, showTray) {
         if (!showTray && notes.isNotEmpty()) {
             // Request focus only when the focusable note container is in composition.
+            Log.d(logTag, "Requesting focus (notes.size/showTray effect)")
             focusRequester.requestFocus()
         }
     }
     LaunchedEffect(Unit) {
+        Log.d(logTag, "Requesting focus (initial composition)")
         focusRequester.requestFocus()
     }
 
     DisposableEffect(lifecycleOwner, notes.size, showTray) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME && !showTray && notes.isNotEmpty()) {
+                Log.d(logTag, "Requesting focus (ON_RESUME)")
                 focusRequester.requestFocus()
             }
         }
@@ -848,7 +853,42 @@ private fun NotesScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            .onFocusChanged {
+                Log.d(logTag, "Focus changed: hasFocus=${it.hasFocus}, isFocused=${it.isFocused}")
+            }
+            .onRotaryScrollEvent { event ->
+                if (notes.isEmpty()) {
+                    Log.d(logTag, "Rotary ignored: notes are empty")
+                    return@onRotaryScrollEvent true
+                }
+                val safeRotaryIndex = selectedIndex.coerceIn(0, notes.lastIndex)
+                val updatedAccumulator = applyRotaryStep(
+                    accumulator = rotaryAccumulator,
+                    delta = event.verticalScrollPixels,
+                    onForward = {
+                        val nextIndex = (safeRotaryIndex + 1).coerceIn(0, notes.lastIndex)
+                        onSelectedIndexChange(nextIndex)
+                        Log.d(logTag, "Rotary forward -> index=$nextIndex")
+                    },
+                    onBackward = {
+                        val previousIndex = (safeRotaryIndex - 1).coerceIn(0, notes.lastIndex)
+                        onSelectedIndexChange(previousIndex)
+                        Log.d(logTag, "Rotary backward -> index=$previousIndex")
+                    }
+                )
+                onRotaryAccumulatorChange(updatedAccumulator)
+                Log.d(
+                    logTag,
+                    "Rotary callback fired: verticalScrollPixels=${event.verticalScrollPixels}, accumulator=$updatedAccumulator, safeIndex=$safeRotaryIndex, noteCount=${notes.size}"
+                )
+                true
+            }
+    ) {
         if (notes.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -884,30 +924,6 @@ private fun NotesScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .focusRequester(focusRequester)
-                .focusable()
-                .onRotaryScrollEvent {
-                    val updatedAccumulator = applyRotaryStep(
-                        accumulator = rotaryAccumulator,
-                        delta = it.verticalScrollPixels,
-                        onForward = {
-                            val nextIndex = (safeIndex + 1).coerceIn(0, notes.lastIndex)
-                            onSelectedIndexChange(nextIndex)
-                            Log.d(logTag, "Rotary forward -> index=$nextIndex")
-                        },
-                        onBackward = {
-                            val previousIndex = (safeIndex - 1).coerceIn(0, notes.lastIndex)
-                            onSelectedIndexChange(previousIndex)
-                            Log.d(logTag, "Rotary backward -> index=$previousIndex")
-                        }
-                    )
-                    onRotaryAccumulatorChange(updatedAccumulator)
-                    Log.d(
-                        logTag,
-                        "event.verticalScrollPixels=${it.verticalScrollPixels}, accumulator=$updatedAccumulator, safeIndex=$safeIndex, noteCount=${notes.size}"
-                    )
-                    true
-                }
                 .let { base ->
                     if (enableHorizontalSwipe) {
                         base.pointerInput(safeIndex, notes.size) {
@@ -1166,6 +1182,7 @@ private data class DiscoveredService(
 private data class ConnectionTarget(val host: String, val port: Int)
 
 private class PhoneImportClient(context: Context) {
+    private val logTag = "PhoneImportClient"
     private val appContext = context.applicationContext
     private val nsdManager = appContext.getSystemService(Context.NSD_SERVICE) as NsdManager
     private val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
@@ -1176,35 +1193,46 @@ private class PhoneImportClient(context: Context) {
         timeoutMs: Long,
         onLog: (String) -> Unit = {}
     ): List<DiscoveredService> = withContext(Dispatchers.IO) {
+        Log.d(logTag, "NSD discovery start: timeoutMs=$timeoutMs")
+        onLog("NSD discovery start: timeoutMs=$timeoutMs")
         val found = ConcurrentHashMap<String, DiscoveredService>()
         val multicastLock = wifiManager.createMulticastLock("wearstickynotes:nsd").apply {
             setReferenceCounted(false)
         }
         val listener = object : NsdManager.DiscoveryListener {
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+                Log.e(logTag, "onStartDiscoveryFailed: serviceType=$serviceType, errorCode=$errorCode")
                 onLog("Discovery start failed (code=$errorCode).")
             }
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
+                Log.e(logTag, "onStopDiscoveryFailed: serviceType=$serviceType, errorCode=$errorCode")
                 onLog("Discovery stop failed (code=$errorCode).")
             }
             override fun onDiscoveryStarted(serviceType: String) {
+                Log.d(logTag, "onDiscoveryStarted: $serviceType")
                 onLog("Discovery started for $serviceType.")
             }
             override fun onDiscoveryStopped(serviceType: String) {
+                Log.d(logTag, "onDiscoveryStopped: $serviceType")
                 onLog("Discovery stopped.")
             }
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                 if (serviceInfo.serviceType != "_timescape._tcp.") return
+                Log.d(logTag, "onServiceFound: name=${serviceInfo.serviceName}, type=${serviceInfo.serviceType}")
                 onLog("Service found: ${serviceInfo.serviceName}. Resolving…")
                 Thread {
                     runCatching {
                         kotlinx.coroutines.runBlocking {
                             resolve(serviceInfo)?.let { resolved ->
                                 found["${resolved.host}:${resolved.port}"] = resolved
+                                Log.d(logTag, "resolve success: ${resolved.host}:${resolved.port} (${resolved.displayName})")
                                 onLog("Resolved ${resolved.displayName} (${resolved.host}:${resolved.port}).")
                             }
                         }
+                    }.onFailure {
+                        Log.e(logTag, "Resolve thread failed for ${serviceInfo.serviceName}", it)
+                        onLog("Resolve thread failure: ${it.message}")
                     }
                 }.start()
             }
@@ -1213,21 +1241,41 @@ private class PhoneImportClient(context: Context) {
         }
 
         runCatching { multicastLock.acquire() }
-            .onSuccess { onLog("Multicast lock acquired for NSD scan.") }
-            .onFailure { onLog("Unable to acquire multicast lock: ${it.message}") }
+            .onSuccess {
+                Log.d(logTag, "Multicast lock acquired for NSD scan.")
+                onLog("Multicast lock acquired for NSD scan.")
+            }
+            .onFailure {
+                Log.e(logTag, "Unable to acquire multicast lock", it)
+                onLog("Unable to acquire multicast lock: ${it.message}")
+            }
 
         runCatching {
             nsdManager.discoverServices("_timescape._tcp", NsdManager.PROTOCOL_DNS_SD, listener)
             delay(timeoutMs)
+        }.onFailure {
+            Log.e(logTag, "discoverServices failed", it)
+            onLog("discoverServices exception: ${it.message}")
+            onLog(it.stackTraceToString())
         }
 
         runCatching { nsdManager.stopServiceDiscovery(listener) }
+            .onFailure {
+                Log.e(logTag, "stopServiceDiscovery failed", it)
+                onLog("stopServiceDiscovery exception: ${it.message}")
+            }
         runCatching {
             if (multicastLock.isHeld) {
                 multicastLock.release()
+                Log.d(logTag, "Multicast lock released.")
                 onLog("Multicast lock released.")
             }
+        }.onFailure {
+            Log.e(logTag, "Multicast lock release failed", it)
+            onLog("Multicast lock release failed: ${it.message}")
         }
+        Log.d(logTag, "NSD discovery end: found=${found.size}")
+        onLog("NSD discovery end: found=${found.size}")
         found.values.sortedBy { it.displayName }
     }
 
@@ -1235,6 +1283,7 @@ private class PhoneImportClient(context: Context) {
         suspendCancellableCoroutine { cont ->
             val listener = object : NsdManager.ResolveListener {
                 override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                    Log.e(logTag, "onResolveFailed: service=${serviceInfo.serviceName}, errorCode=$errorCode")
                     if (cont.isActive) cont.resume(null)
                 }
 
@@ -1263,12 +1312,21 @@ private class PhoneImportClient(context: Context) {
         runCatching {
             val base = "http://${target.host}:${target.port}"
             onLog("Using base URL: $base")
+            Log.d(logTag, "Import target host/port: ${target.host}:${target.port}")
 
             // Optional, ignore failures
             runCatching {
                 val metaRequest = Request.Builder().url("$base/meta").get().build()
-                client.newCall(metaRequest).execute().close()
+                Log.d(logTag, "HTTP GET ${metaRequest.url}")
+                client.newCall(metaRequest).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    Log.d(logTag, "HTTP ${response.code} ${metaRequest.url} body=${body.take(500)}")
+                    onLog("/meta -> ${response.code}: ${body.take(120)}")
+                }
                 onLog("Optional /meta check completed.")
+            }.onFailure {
+                Log.e(logTag, "Optional /meta failed", it)
+                onLog("Optional /meta failed: ${it.message}")
             }
 
             val sessionId = requestSession(base, clientName, onLog)
@@ -1279,12 +1337,19 @@ private class PhoneImportClient(context: Context) {
             onDownloading()
             onLog("Approval received. Downloading export…")
             val exportRequest = Request.Builder().url("$base/export?token=$token").get().build()
+            Log.d(logTag, "HTTP GET ${exportRequest.url}")
             val payload = client.newCall(exportRequest).execute().use { response ->
+                val bodyText = response.body?.string().orEmpty()
+                Log.d(logTag, "HTTP ${response.code} ${exportRequest.url} body=${bodyText.take(500)}")
                 if (!response.isSuccessful) error("Export failed (${response.code})")
-                response.body?.string().orEmpty()
+                bodyText
             }
             onLog("Export downloaded (${payload.length} bytes). Parsing JSON…")
             json.decodeFromString<StickyNotesFile>(payload).stickyNotes
+        }.onFailure { throwable ->
+            Log.e(logTag, "importFromTarget failed", throwable)
+            onLog("importFromTarget exception: ${throwable.message}")
+            onLog(throwable.stackTraceToString())
         }
     }
 
@@ -1298,9 +1363,13 @@ private class PhoneImportClient(context: Context) {
 
         onLog("POST $base/session/request")
         val req = Request.Builder().url("$base/session/request").post(body).build()
+        Log.d(logTag, "HTTP POST ${req.url}")
         val res = client.newCall(req).execute().use { response ->
+            val responseBody = response.body?.string().orEmpty()
+            Log.d(logTag, "HTTP ${response.code} ${req.url} body=${responseBody.take(500)}")
+            onLog("/session/request -> ${response.code}: ${responseBody.take(120)}")
             if (!response.isSuccessful) error("Session request failed (${response.code})")
-            response.body?.string().orEmpty()
+            responseBody
         }
         return json.decodeFromString<SessionRequestResponse>(res).sessionId
     }
@@ -1311,9 +1380,13 @@ private class PhoneImportClient(context: Context) {
         while (System.currentTimeMillis() - start < timeoutMs) {
             onLog("GET $base/session/status?sessionId=$sessionId")
             val req = Request.Builder().url("$base/session/status?sessionId=$sessionId").get().build()
+            Log.d(logTag, "HTTP GET ${req.url}")
             val body = client.newCall(req).execute().use { response ->
+                val responseBody = response.body?.string().orEmpty()
+                Log.d(logTag, "HTTP ${response.code} ${req.url} body=${responseBody.take(500)}")
+                onLog("/session/status -> ${response.code}: ${responseBody.take(120)}")
                 if (!response.isSuccessful) error("Status failed (${response.code})")
-                response.body?.string().orEmpty()
+                responseBody
             }
             val status = json.decodeFromString<SessionStatusResponse>(body)
             onLog("Phone status: ${status.status}")
