@@ -64,6 +64,7 @@ Top-level `stickyNotes` array is imported with `Json { ignoreUnknownKeys = true 
 ## Permissions / local network notes
 
 - App declares `INTERNET` for HTTP import.
+- App enables cleartext local-network HTTP (`android:usesCleartextTraffic="true"` with a network security config), required when phone export server uses `http://IP:port`.
 - Discovery uses Android NSD (`NsdManager`); availability/behavior depends on watch firmware and local network configuration.
 - Watch and phone must be on the same LAN.
 
