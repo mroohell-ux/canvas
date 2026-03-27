@@ -106,6 +106,11 @@ import kotlin.math.roundToInt
 import kotlin.math.abs
 import kotlin.coroutines.resume
 
+private const val ROTARY_STEP_THRESHOLD = 10f
+private val SCREEN_EDGE_PADDING = 2.dp
+private val NOTE_EDGE_PADDING = 2.dp
+private val NOTE_CONTENT_VERTICAL_PADDING = 8.dp
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -395,7 +400,7 @@ private fun ImportFlowScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(10.dp),
+            .padding(SCREEN_EDGE_PADDING),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -493,18 +498,18 @@ private fun CardFlowsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(10.dp)
+            .padding(SCREEN_EDGE_PADDING)
             .focusRequester(focusRequester)
             .focusable()
             .onRotaryScrollEvent {
                 var updated = rotaryAccumulator + it.verticalScrollPixels
                 when {
-                    updated > 25f -> {
+                    updated > ROTARY_STEP_THRESHOLD -> {
                         onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0)))
                         updated = 0f
                     }
 
-                    updated < -25f -> {
+                    updated < -ROTARY_STEP_THRESHOLD -> {
                         onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
                         updated = 0f
                     }
@@ -740,12 +745,12 @@ private fun NotesScreen(
                 .onRotaryScrollEvent {
                     var updated = rotaryAccumulator + it.verticalScrollPixels
                     when {
-                        updated > 25f -> {
+                        updated > ROTARY_STEP_THRESHOLD -> {
                             onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex))
                             updated = 0f
                         }
 
-                        updated < -25f -> {
+                        updated < -ROTARY_STEP_THRESHOLD -> {
                             onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0))
                             updated = 0f
                         }
@@ -785,7 +790,7 @@ private fun NotesScreen(
                         }
                     )
                 }
-                .padding(8.dp)
+                .padding(NOTE_EDGE_PADDING)
                 .clip(RoundedCornerShape(999.dp))
                 .background(noteRadialGradient(note)),
             contentAlignment = Alignment.Center
@@ -793,7 +798,7 @@ private fun NotesScreen(
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(vertical = 14.dp)
+                    .padding(vertical = NOTE_CONTENT_VERTICAL_PADDING)
             ) {
                 val density = LocalDensity.current
                 val textMeasurer = rememberTextMeasurer()
@@ -801,7 +806,7 @@ private fun NotesScreen(
                 val headerReserved = 30.dp
                 val baseFontSize = adaptiveFontSize(text) * textScale.factor
 // These match your real layout
-                val outerVerticalPadding = 14.dp          // from BoxWithConstraints padding(vertical = 14.dp)
+                val outerVerticalPadding = NOTE_CONTENT_VERTICAL_PADDING
                 val contentTopPadding = 26.dp            // from non-scroll Box padding(top = 26.dp)
                 val contentBottomPadding = 34.dp         // from non-scroll Box padding(bottom = 34.dp)
 
