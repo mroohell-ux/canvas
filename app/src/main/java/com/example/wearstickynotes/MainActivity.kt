@@ -755,7 +755,7 @@ private fun NotesScreen(
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
     val starFontSize = (minScreenDp * 0.075f).coerceIn(12f, 18f).sp
-    val starBottomPadding = (minScreenDp * 0.045f).coerceIn(8f, 16f).dp
+    val starBottomPadding = (minScreenDp * 0.015f).coerceIn(2f, 6f).dp
     val trayScrimAlpha by animateFloatAsState(
         targetValue = if (showTray) 0.30f else 0f,
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
