@@ -3,6 +3,7 @@ package com.example.wearstickynotes
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -1162,6 +1163,7 @@ private data class ConnectionTarget(val host: String, val port: Int)
 private class PhoneImportClient(context: Context) {
     private val appContext = context.applicationContext
     private val nsdManager = appContext.getSystemService(Context.NSD_SERVICE) as NsdManager
+    private val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
     private val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient.Builder().build()
 
@@ -1170,6 +1172,9 @@ private class PhoneImportClient(context: Context) {
         onLog: (String) -> Unit = {}
     ): List<DiscoveredService> = withContext(Dispatchers.IO) {
         val found = ConcurrentHashMap<String, DiscoveredService>()
+        val multicastLock = wifiManager.createMulticastLock("wearstickynotes:nsd").apply {
+            setReferenceCounted(false)
+        }
         val listener = object : NsdManager.DiscoveryListener {
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                 onLog("Discovery start failed (code=$errorCode).")
@@ -1202,12 +1207,22 @@ private class PhoneImportClient(context: Context) {
             override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
         }
 
+        runCatching { multicastLock.acquire() }
+            .onSuccess { onLog("Multicast lock acquired for NSD scan.") }
+            .onFailure { onLog("Unable to acquire multicast lock: ${it.message}") }
+
         runCatching {
             nsdManager.discoverServices("_timescape._tcp", NsdManager.PROTOCOL_DNS_SD, listener)
             delay(timeoutMs)
         }
 
         runCatching { nsdManager.stopServiceDiscovery(listener) }
+        runCatching {
+            if (multicastLock.isHeld) {
+                multicastLock.release()
+                onLog("Multicast lock released.")
+            }
+        }
         found.values.sortedBy { it.displayName }
     }
 
