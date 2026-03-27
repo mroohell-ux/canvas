@@ -50,6 +50,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -78,6 +79,7 @@ import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -105,6 +107,8 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.math.abs
 import kotlin.coroutines.resume
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 
 private const val ROTARY_STEP_THRESHOLD = 4f
 private val SCREEN_EDGE_PADDING = 0.dp
@@ -537,6 +541,7 @@ private fun CardFlowsScreen(
     var isDragging by remember { mutableStateOf(false) }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     val focusRequester = remember { FocusRequester() }
+    val lifecycleOwner = LocalLifecycleOwner.current
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
@@ -547,6 +552,16 @@ private fun CardFlowsScreen(
         if (flows.isNotEmpty()) {
             focusRequester.requestFocus()
         }
+    }
+
+    DisposableEffect(lifecycleOwner, flows.size) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && flows.isNotEmpty()) {
+                focusRequester.requestFocus()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Box(
@@ -752,6 +767,7 @@ private fun NotesScreen(
     var showTray by remember { mutableStateOf(false) }
     val noteScrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
+    val lifecycleOwner = LocalLifecycleOwner.current
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
     val starFontSize = (minScreenDp * 0.075f).coerceIn(12f, 18f).sp
@@ -767,6 +783,16 @@ private fun NotesScreen(
             // Request focus only when the focusable note container is in composition.
             focusRequester.requestFocus()
         }
+    }
+
+    DisposableEffect(lifecycleOwner, notes.size, showTray) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && !showTray && notes.isNotEmpty()) {
+                focusRequester.requestFocus()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
