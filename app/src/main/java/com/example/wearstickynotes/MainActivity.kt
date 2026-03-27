@@ -5,6 +5,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -811,6 +812,7 @@ private fun NotesScreen(
     textScale: TextScaleOption,
     onTextScaleChange: (TextScaleOption) -> Unit
 ) {
+    val logTag = "NotesScreenRotary"
     var horizontalDragSum by remember { mutableFloatStateOf(0f) }
     var showTray by remember { mutableStateOf(false) }
     val noteScrollState = rememberScrollState()
@@ -831,6 +833,9 @@ private fun NotesScreen(
             // Request focus only when the focusable note container is in composition.
             focusRequester.requestFocus()
         }
+    }
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
     }
 
     DisposableEffect(lifecycleOwner, notes.size, showTray) {
@@ -881,25 +886,25 @@ private fun NotesScreen(
                 .fillMaxSize()
                 .focusRequester(focusRequester)
                 .focusable()
-                .onPreRotaryScrollEvent {
-                    onRotaryAccumulatorChange(
-                        applyRotaryStep(
-                            accumulator = rotaryAccumulator,
-                            delta = it.verticalScrollPixels,
-                            onForward = { onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex)) },
-                            onBackward = { onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0)) }
-                        )
-                    )
-                    true
-                }
                 .onRotaryScrollEvent {
-                    onRotaryAccumulatorChange(
-                        applyRotaryStep(
-                            accumulator = rotaryAccumulator,
-                            delta = it.verticalScrollPixels,
-                            onForward = { onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex)) },
-                            onBackward = { onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0)) }
-                        )
+                    val updatedAccumulator = applyRotaryStep(
+                        accumulator = rotaryAccumulator,
+                        delta = it.verticalScrollPixels,
+                        onForward = {
+                            val nextIndex = (safeIndex + 1).coerceIn(0, notes.lastIndex)
+                            onSelectedIndexChange(nextIndex)
+                            Log.d(logTag, "Rotary forward -> index=$nextIndex")
+                        },
+                        onBackward = {
+                            val previousIndex = (safeIndex - 1).coerceIn(0, notes.lastIndex)
+                            onSelectedIndexChange(previousIndex)
+                            Log.d(logTag, "Rotary backward -> index=$previousIndex")
+                        }
+                    )
+                    onRotaryAccumulatorChange(updatedAccumulator)
+                    Log.d(
+                        logTag,
+                        "event.verticalScrollPixels=${it.verticalScrollPixels}, accumulator=$updatedAccumulator, safeIndex=$safeIndex, noteCount=${notes.size}"
                     )
                     true
                 }
