@@ -167,9 +167,28 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         mutableStateListOf<StickyNote>().apply { addAll(initialNotes) }
     }
 
-    var appScreen by remember { mutableStateOf(AppScreen.CardFlows) }
-    var selectedFlowIndex by remember { mutableIntStateOf(0) }
-    val flowLastOpenedNoteIndex = remember { mutableStateMapOf<Long, Int>() }
+    val initialAppScreen = remember(prefs) {
+        AppScreen.fromStorage(
+            prefs.getString("last_screen", AppScreen.CardFlows.storageKey)
+                ?: AppScreen.CardFlows.storageKey
+        )
+    }
+    val initialFlowIndex = remember(prefs) {
+        prefs.getInt("last_flow_index", 0).coerceAtLeast(0)
+    }
+    val initialFlowLastOpenedNoteIndex = remember(prefs, storageJson) {
+        runCatching {
+            prefs.getString("flow_last_note_index", null)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { storageJson.decodeFromString<Map<Long, Int>>(it) }
+        }.getOrNull().orEmpty()
+    }
+
+    var appScreen by remember { mutableStateOf(initialAppScreen) }
+    var selectedFlowIndex by remember { mutableIntStateOf(initialFlowIndex) }
+    val flowLastOpenedNoteIndex = remember {
+        mutableStateMapOf<Long, Int>().apply { putAll(initialFlowLastOpenedNoteIndex) }
+    }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     var importState by remember { mutableStateOf<ImportState>(ImportState.Idle) }
     var services by remember { mutableStateOf(emptyList<DiscoveredService>()) }
@@ -242,6 +261,20 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
     LaunchedEffect(shuffleMode) {
         prefs.edit().putBoolean("shuffle_mode", shuffleMode).apply()
+    }
+
+    LaunchedEffect(appScreen) {
+        prefs.edit().putString("last_screen", appScreen.storageKey).apply()
+    }
+
+    LaunchedEffect(selectedFlowIndex) {
+        prefs.edit().putInt("last_flow_index", selectedFlowIndex).apply()
+    }
+
+    LaunchedEffect(flowLastOpenedNoteIndex.toMap()) {
+        prefs.edit()
+            .putString("flow_last_note_index", storageJson.encodeToString(flowLastOpenedNoteIndex.toMap()))
+            .apply()
     }
 
     LaunchedEffect(textScale) {
@@ -997,7 +1030,19 @@ private fun NotesScreen(
 
 private enum class AppScreen {
     CardFlows,
-    Notes
+    Notes;
+
+    val storageKey: String
+        get() = when (this) {
+            CardFlows -> "card_flows"
+            Notes -> "notes"
+        }
+
+    companion object {
+        fun fromStorage(value: String): AppScreen {
+            return entries.firstOrNull { it.storageKey == value } ?: CardFlows
+        }
+    }
 }
 
 private data class CardFlow(
