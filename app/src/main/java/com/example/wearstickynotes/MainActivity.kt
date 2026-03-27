@@ -9,7 +9,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
@@ -501,8 +500,8 @@ private fun CardFlowsScreen(
     onSelectedIndexChange: (Int) -> Unit,
     onOpenSelectedFlow: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    val dragOffset = remember { Animatable(0f) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    var isDragging by remember { mutableStateOf(false) }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     val focusRequester = remember { FocusRequester() }
     val density = LocalDensity.current
@@ -547,19 +546,20 @@ private fun CardFlowsScreen(
                         if (dragStartedAtMs == 0L) {
                             dragStartedAtMs = System.currentTimeMillis()
                         }
-                        scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
+                        isDragging = true
+                        dragOffset += amount
                     },
                     onDragEnd = {
-                        val dragSteps = (dragOffset.value / spacingPx).roundToInt()
+                        val dragSteps = (dragOffset / spacingPx).roundToInt()
                         val durationMs = (System.currentTimeMillis() - dragStartedAtMs).coerceAtLeast(1L)
-                        val velocityPxPerMs = kotlin.math.abs(dragOffset.value) / durationMs.toFloat()
+                        val velocityPxPerMs = kotlin.math.abs(dragOffset) / durationMs.toFloat()
                         val fastSwipeBoost = when {
                             velocityPxPerMs > 2.8f -> 2
                             velocityPxPerMs > 1.8f -> 1
                             else -> 0
                         }
                         val boostedSteps = if (dragSteps == 0 && fastSwipeBoost > 0) {
-                            if (dragOffset.value < 0f) 1 else -1
+                            if (dragOffset < 0f) 1 else -1
                         } else if (dragSteps > 0) {
                             dragSteps + fastSwipeBoost
                         } else if (dragSteps < 0) {
@@ -573,11 +573,13 @@ private fun CardFlowsScreen(
                             onSelectedIndexChange(targetIndex)
                         }
                         dragStartedAtMs = 0L
-                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+                        isDragging = false
+                        dragOffset = 0f
                     },
                     onDragCancel = {
                         dragStartedAtMs = 0L
-                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+                        isDragging = false
+                        dragOffset = 0f
                     }
                 )
             },
@@ -601,6 +603,12 @@ private fun CardFlowsScreen(
             val sideCircleSize = (selectedCircleSize * 0.84f).coerceIn(88.dp, 124.dp)
             val railHeight = (selectedCircleSize * 1.28f).coerceIn(150.dp, 208.dp)
             val adaptiveSpacingPx = with(density) { (selectedCircleSize * 0.86f).toPx() }
+            val gestureOffset by animateFloatAsState(
+                targetValue = dragOffset,
+                animationSpec = if (isDragging) spring(stiffness = 1200f, dampingRatio = 1f)
+                else spring(dampingRatio = 0.85f, stiffness = 420f),
+                label = "gestureOffset"
+            )
 
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -614,7 +622,7 @@ private fun CardFlowsScreen(
                 Box(modifier = Modifier.fillMaxWidth().height(railHeight), contentAlignment = Alignment.Center) {
                     flows.forEachIndexed { index, flow ->
                         val targetOffset by animateFloatAsState(
-                            targetValue = ((index - selectedIndex) * adaptiveSpacingPx) + dragOffset.value,
+                            targetValue = ((index - selectedIndex) * adaptiveSpacingPx) + gestureOffset,
                             animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
                             label = "flowOffset$index"
                         )
