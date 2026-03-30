@@ -788,7 +788,6 @@ private fun NotesScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(8.dp)
                         .clip(RoundedCornerShape(999.dp))
                         .background(noteRadialGradient(note))
                         .pointerInput(note.id, showTray) {
