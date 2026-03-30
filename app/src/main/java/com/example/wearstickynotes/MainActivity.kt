@@ -117,7 +117,7 @@ private const val ROTARY_STEP_THRESHOLD = 4f
 private val SCREEN_EDGE_PADDING = 0.dp
 private val NOTE_EDGE_PADDING = 0.dp
 private val NOTE_CONTENT_VERTICAL_PADDING = 4.dp
-private val OUTER_GESTURE_FREE_EDGE_MARGIN = 24.dp
+private val OUTER_GESTURE_FREE_EDGE_MARGIN = 8.dp
 
 private fun applyRotaryStep(
     accumulator: Float,
