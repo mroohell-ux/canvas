@@ -83,7 +83,9 @@ import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -829,6 +831,7 @@ private fun NotesScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
     val starFontSize = (minScreenDp * 0.075f).coerceIn(12f, 18f).sp
     val starBottomPadding = (minScreenDp * 0.015f).coerceIn(2f, 6f).dp
@@ -919,13 +922,17 @@ private fun NotesScreen(
                 )
                 true
             }
-            .pointerInput(notes.size, selectedIndex) {
+            .pointerInput(notes.size) {
                 var trackingEdgeRotate = false
                 var lastAngle = 0f
+                var edgeAccumulator = 0f
+                var currentGestureIndex = 0
+                var lastEventAtMs = 0L
                 val edgeBandPx = with(density) { EDGE_ROTATION_TOUCH_BAND.toPx() }
                 detectDragGestures(
                     onDragStart = { start ->
                         if (notes.isEmpty()) return@detectDragGestures
+                        currentGestureIndex = selectedIndex.coerceIn(0, notes.lastIndex)
                         val cx = size.width / 2f
                         val cy = size.height / 2f
                         val dx = start.x - cx
@@ -936,6 +943,8 @@ private fun NotesScreen(
                         trackingEdgeRotate = radius >= edgeThreshold
                         if (trackingEdgeRotate) {
                             lastAngle = atan2(dy, dx)
+                            edgeAccumulator = 0f
+                            lastEventAtMs = System.currentTimeMillis()
                             Log.d(logTag, "Edge rotate touch start (radius=$radius threshold=$edgeThreshold)")
                         }
                     },
@@ -951,28 +960,51 @@ private fun NotesScreen(
                         if (delta < -PI) delta += (2 * PI).toFloat()
                         lastAngle = angle
 
-                        val safeRotaryIndex = selectedIndex.coerceIn(0, notes.lastIndex)
                         val syntheticPixels = delta * 120f
-                        val updatedAccumulator = applyRotaryStep(
-                            accumulator = rotaryAccumulator,
-                            delta = syntheticPixels,
-                            onForward = {
-                                val nextIndex = (safeRotaryIndex + 1).coerceIn(0, notes.lastIndex)
-                                onSelectedIndexChange(nextIndex)
-                                Log.d(logTag, "Edge rotate forward -> index=$nextIndex")
-                            },
-                            onBackward = {
-                                val previousIndex = (safeRotaryIndex - 1).coerceIn(0, notes.lastIndex)
-                                onSelectedIndexChange(previousIndex)
-                                Log.d(logTag, "Edge rotate backward -> index=$previousIndex")
-                            }
-                        )
-                        onRotaryAccumulatorChange(updatedAccumulator)
-                        Log.d(logTag, "Edge rotate drag deltaRad=$delta syntheticPixels=$syntheticPixels")
+                        val now = System.currentTimeMillis()
+                        val dtMs = (now - lastEventAtMs).coerceAtLeast(1L)
+                        lastEventAtMs = now
+                        val velocityPxPerMs = kotlin.math.abs(syntheticPixels) / dtMs.toFloat()
+                        val speedFactor = when {
+                            velocityPxPerMs > 1.8f -> 0.40f
+                            velocityPxPerMs > 1.2f -> 0.55f
+                            velocityPxPerMs > 0.8f -> 0.75f
+                            else -> 1f
+                        }
+                        val dynamicThreshold = (ROTARY_STEP_THRESHOLD * speedFactor).coerceAtLeast(1.4f)
+
+                        edgeAccumulator += syntheticPixels
+                        while (edgeAccumulator >= dynamicThreshold) {
+                            val nextIndex = (currentGestureIndex + 1).coerceIn(0, notes.lastIndex)
+                            if (nextIndex == currentGestureIndex) break
+                            currentGestureIndex = nextIndex
+                            onSelectedIndexChange(currentGestureIndex)
+                            onRotaryAccumulatorChange(edgeAccumulator)
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            Log.d(logTag, "Edge rotate forward -> index=$currentGestureIndex velocity=$velocityPxPerMs threshold=$dynamicThreshold")
+                            edgeAccumulator -= dynamicThreshold
+                        }
+                        while (edgeAccumulator <= -dynamicThreshold) {
+                            val previousIndex = (currentGestureIndex - 1).coerceIn(0, notes.lastIndex)
+                            if (previousIndex == currentGestureIndex) break
+                            currentGestureIndex = previousIndex
+                            onSelectedIndexChange(currentGestureIndex)
+                            onRotaryAccumulatorChange(edgeAccumulator)
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            Log.d(logTag, "Edge rotate backward -> index=$currentGestureIndex velocity=$velocityPxPerMs threshold=$dynamicThreshold")
+                            edgeAccumulator += dynamicThreshold
+                        }
+                        Log.d(logTag, "Edge rotate drag deltaRad=$delta syntheticPixels=$syntheticPixels accumulator=$edgeAccumulator velocity=$velocityPxPerMs")
                         change.consume()
                     },
-                    onDragEnd = { trackingEdgeRotate = false },
-                    onDragCancel = { trackingEdgeRotate = false }
+                    onDragEnd = {
+                        trackingEdgeRotate = false
+                        edgeAccumulator = 0f
+                    },
+                    onDragCancel = {
+                        trackingEdgeRotate = false
+                        edgeAccumulator = 0f
+                    }
                 )
             }
     ) {
