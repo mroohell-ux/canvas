@@ -769,7 +769,7 @@ private fun NotesScreen(
                     }
                     onRotaryAccumulatorChange(updated)
                     true
-                }
+                },
             contentAlignment = Alignment.Center
         ) {
             HorizontalPager(
