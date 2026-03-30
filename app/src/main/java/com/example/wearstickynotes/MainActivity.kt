@@ -960,39 +960,41 @@ private fun NotesScreen(
                         if (delta < -PI) delta += (2 * PI).toFloat()
                         lastAngle = angle
 
-                        val syntheticPixels = delta * 120f
+                        val syntheticPixels = delta * 220f
                         val now = System.currentTimeMillis()
                         val dtMs = (now - lastEventAtMs).coerceAtLeast(1L)
                         lastEventAtMs = now
                         val velocityPxPerMs = kotlin.math.abs(syntheticPixels) / dtMs.toFloat()
                         val speedFactor = when {
-                            velocityPxPerMs > 1.8f -> 0.40f
-                            velocityPxPerMs > 1.2f -> 0.55f
-                            velocityPxPerMs > 0.8f -> 0.75f
+                            velocityPxPerMs > 2.4f -> 0.35f
+                            velocityPxPerMs > 1.6f -> 0.50f
+                            velocityPxPerMs > 1.0f -> 0.70f
                             else -> 1f
                         }
-                        val dynamicThreshold = (ROTARY_STEP_THRESHOLD * speedFactor).coerceAtLeast(1.4f)
+                        val dynamicThreshold = (2.2f * speedFactor).coerceAtLeast(0.9f)
 
                         edgeAccumulator += syntheticPixels
-                        while (edgeAccumulator >= dynamicThreshold) {
+                        var forwardSteps = 0
+                        while (edgeAccumulator >= dynamicThreshold && forwardSteps < 3) {
                             val nextIndex = (currentGestureIndex + 1).coerceIn(0, notes.lastIndex)
                             if (nextIndex == currentGestureIndex) break
                             currentGestureIndex = nextIndex
                             onSelectedIndexChange(currentGestureIndex)
-                            onRotaryAccumulatorChange(edgeAccumulator)
                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             Log.d(logTag, "Edge rotate forward -> index=$currentGestureIndex velocity=$velocityPxPerMs threshold=$dynamicThreshold")
                             edgeAccumulator -= dynamicThreshold
+                            forwardSteps++
                         }
-                        while (edgeAccumulator <= -dynamicThreshold) {
+                        var backwardSteps = 0
+                        while (edgeAccumulator <= -dynamicThreshold && backwardSteps < 3) {
                             val previousIndex = (currentGestureIndex - 1).coerceIn(0, notes.lastIndex)
                             if (previousIndex == currentGestureIndex) break
                             currentGestureIndex = previousIndex
                             onSelectedIndexChange(currentGestureIndex)
-                            onRotaryAccumulatorChange(edgeAccumulator)
                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             Log.d(logTag, "Edge rotate backward -> index=$currentGestureIndex velocity=$velocityPxPerMs threshold=$dynamicThreshold")
                             edgeAccumulator += dynamicThreshold
+                            backwardSteps++
                         }
                         Log.d(logTag, "Edge rotate drag deltaRad=$delta syntheticPixels=$syntheticPixels accumulator=$edgeAccumulator velocity=$velocityPxPerMs")
                         change.consume()
