@@ -3,13 +3,14 @@ package com.example.wearstickynotes
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
@@ -26,6 +27,7 @@ import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,6 +53,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -66,6 +69,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
@@ -74,10 +78,14 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.rotary.onPreRotaryScrollEvent
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -104,7 +112,41 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.min
+import kotlin.math.sqrt
+import kotlin.math.PI
 import kotlin.coroutines.resume
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+
+private const val ROTARY_STEP_THRESHOLD = 4f
+private val SCREEN_EDGE_PADDING = 0.dp
+private val NOTE_EDGE_PADDING = 0.dp
+private val NOTE_CONTENT_VERTICAL_PADDING = 4.dp
+private val OUTER_GESTURE_FREE_EDGE_MARGIN = 4.dp
+private val EDGE_ROTATION_TOUCH_BAND = 22.dp
+
+private fun applyRotaryStep(
+    accumulator: Float,
+    delta: Float,
+    onForward: () -> Unit,
+    onBackward: () -> Unit
+): Float {
+    var updated = accumulator + delta
+    when {
+        updated > ROTARY_STEP_THRESHOLD -> {
+            onForward()
+            updated = 0f
+        }
+
+        updated < -ROTARY_STEP_THRESHOLD -> {
+            onBackward()
+            updated = 0f
+        }
+    }
+    return updated
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -141,13 +183,40 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         mutableStateListOf<StickyNote>().apply { addAll(initialNotes) }
     }
 
-    var appScreen by remember { mutableStateOf(AppScreen.CardFlows) }
-    var selectedFlowIndex by remember { mutableIntStateOf(0) }
-    val flowLastOpenedNoteIndex = remember { mutableStateMapOf<Long, Int>() }
+    val initialAppScreen = remember(prefs) {
+        AppScreen.fromStorage(
+            prefs.getString("last_screen", AppScreen.CardFlows.storageKey)
+                ?: AppScreen.CardFlows.storageKey
+        )
+    }
+    val initialFlowIndex = remember(prefs) {
+        prefs.getInt("last_flow_index", 0).coerceAtLeast(0)
+    }
+    val initialFlowLastOpenedNoteIndex = remember(prefs, storageJson) {
+        runCatching {
+            prefs.getString("flow_last_note_index", null)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { storageJson.decodeFromString<Map<Long, Int>>(it) }
+        }.getOrNull().orEmpty()
+    }
+
+    var appScreen by remember { mutableStateOf(initialAppScreen) }
+    var selectedFlowIndex by remember { mutableIntStateOf(initialFlowIndex) }
+    val flowLastOpenedNoteIndex = remember {
+        mutableStateMapOf<Long, Int>().apply { putAll(initialFlowLastOpenedNoteIndex) }
+    }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     var importState by remember { mutableStateOf<ImportState>(ImportState.Idle) }
     var services by remember { mutableStateOf(emptyList<DiscoveredService>()) }
     var manualAddress by remember { mutableStateOf("") }
+    val importDebugLog = remember { mutableStateListOf<String>() }
+
+    fun addImportLog(message: String) {
+        importDebugLog.add(message)
+        while (importDebugLog.size > 40) {
+            importDebugLog.removeAt(0)
+        }
+    }
 
     val initialCollectionIds = remember(prefs, storageJson) {
         runCatching {
@@ -218,6 +287,20 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         prefs.edit().putBoolean("shuffle_mode", shuffleMode).apply()
     }
 
+    LaunchedEffect(appScreen) {
+        prefs.edit().putString("last_screen", appScreen.storageKey).apply()
+    }
+
+    LaunchedEffect(selectedFlowIndex) {
+        prefs.edit().putInt("last_flow_index", selectedFlowIndex).apply()
+    }
+
+    LaunchedEffect(flowLastOpenedNoteIndex.toMap()) {
+        prefs.edit()
+            .putString("flow_last_note_index", storageJson.encodeToString(flowLastOpenedNoteIndex.toMap()))
+            .apply()
+    }
+
     LaunchedEffect(textScale) {
         prefs.edit().putString("text_scale", textScale.storageKey).apply()
     }
@@ -255,27 +338,37 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
     fun startDiscovery() {
         scope.launch {
+            addImportLog("Scanning local network for _timescape._tcp services…")
             importState = ImportState.Searching
-            val found = importer.discoverServices(timeoutMs = 8_000)
+            val found = importer.discoverServices(
+                timeoutMs = 8_000,
+                onLog = { addImportLog(it) }
+            )
             services = found
+            addImportLog("Discovery finished. Found ${found.size} service(s).")
             importState = ImportState.DeviceList(found)
         }
     }
 
     fun runImport(target: ConnectionTarget) {
         scope.launch {
+            addImportLog("Connecting to ${target.host}:${target.port} …")
             importState = ImportState.RequestingApproval(target)
             val result = importer.importFromTarget(
                 target = target,
                 clientName = "Wear ${android.os.Build.MODEL}",
                 onWaiting = { importState = ImportState.Waiting },
-                onDownloading = { importState = ImportState.Downloading }
+                onDownloading = { importState = ImportState.Downloading },
+                onLog = { addImportLog(it) }
             )
 
             result.onSuccess { imported ->
+                addImportLog("Import success. Received ${imported.size} notes.")
                 onImported(imported)
                 Toast.makeText(context, "Imported ${imported.size} notes", Toast.LENGTH_SHORT).show()
             }.onFailure {
+                addImportLog(it.stackTraceToString())
+                addImportLog("Import failed: ${it.message ?: "Unknown error"}")
                 importState = ImportState.Failed(it.message ?: "Unknown error")
             }
         }
@@ -289,24 +382,30 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         ImportState.Downloading,
         is ImportState.Imported,
         is ImportState.Failed -> {
-            ImportFlowScreen(
-                state = state,
-                services = services,
-                manualAddress = manualAddress,
-                onManualAddressChange = { manualAddress = it },
-                onDiscover = { startDiscovery() },
-                onSelectService = { runImport(ConnectionTarget(it.host, it.port)) },
-                onManualConnect = {
-                    val parsed = parseManualAddress(manualAddress)
-                    if (parsed == null) {
-                        importState = ImportState.Failed("Use format IP:port")
-                    } else {
-                        runImport(parsed)
+                ImportFlowScreen(
+                    state = state,
+                    services = services,
+                    debugLog = importDebugLog.toList(),
+                    manualAddress = manualAddress,
+                    onManualAddressChange = { manualAddress = it },
+                    onDiscover = { startDiscovery() },
+                    onSelectService = { runImport(ConnectionTarget(it.host, it.port)) },
+                    onManualConnect = {
+                        val parsed = parseManualAddress(manualAddress)
+                        if (parsed == null) {
+                            addImportLog("Manual connect input is invalid: \"$manualAddress\"")
+                            importState = ImportState.Failed("Use format IP:port")
+                        } else {
+                            addImportLog("Manual connect requested for ${parsed.host}:${parsed.port}")
+                            runImport(parsed)
+                        }
+                    },
+                    onClose = {
+                        addImportLog("Import dialog closed.")
+                        importState = ImportState.Idle
                     }
-                },
-                onClose = { importState = ImportState.Idle }
-            )
-        }
+                )
+            }
 
         ImportState.Idle -> {
             AnimatedContent(
@@ -385,6 +484,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 private fun ImportFlowScreen(
     state: ImportState,
     services: List<DiscoveredService>,
+    debugLog: List<String>,
     manualAddress: String,
     onManualAddressChange: (String) -> Unit,
     onDiscover: () -> Unit,
@@ -395,7 +495,7 @@ private fun ImportFlowScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(10.dp),
+            .padding(SCREEN_EDGE_PADDING),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -463,6 +563,29 @@ private fun ImportFlowScreen(
                 Button(onClick = onDiscover) { Text("Search again") }
                 Button(onClick = onClose) { Text("Cancel") }
             }
+
+            if (debugLog.isNotEmpty()) {
+                Text("Debug log", color = Color.White.copy(alpha = 0.9f), fontSize = 11.sp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xCC111111))
+                        .padding(8.dp)
+                        .height(120.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    debugLog.takeLast(20).forEach { line ->
+                        Text(
+                            text = "• $line",
+                            color = Color(0xFFE0E0E0),
+                            fontSize = 10.sp,
+                            lineHeight = 12.sp
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -474,10 +597,11 @@ private fun CardFlowsScreen(
     onSelectedIndexChange: (Int) -> Unit,
     onOpenSelectedFlow: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    val dragOffset = remember { Animatable(0f) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    var isDragging by remember { mutableStateOf(false) }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     val focusRequester = remember { FocusRequester() }
+    val lifecycleOwner = LocalLifecycleOwner.current
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
@@ -490,26 +614,38 @@ private fun CardFlowsScreen(
         }
     }
 
+    DisposableEffect(lifecycleOwner, flows.size) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && flows.isNotEmpty()) {
+                focusRequester.requestFocus()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(10.dp)
+            .padding(SCREEN_EDGE_PADDING)
             .focusRequester(focusRequester)
             .focusable()
+            .onPreRotaryScrollEvent {
+                rotaryAccumulator = applyRotaryStep(
+                    accumulator = rotaryAccumulator,
+                    delta = it.verticalScrollPixels,
+                    onForward = { onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0))) },
+                    onBackward = { onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0)) }
+                )
+                true
+            }
             .onRotaryScrollEvent {
-                var updated = rotaryAccumulator + it.verticalScrollPixels
-                when {
-                    updated > 25f -> {
-                        onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0)))
-                        updated = 0f
-                    }
-
-                    updated < -25f -> {
-                        onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
-                        updated = 0f
-                    }
-                }
-                rotaryAccumulator = updated
+                rotaryAccumulator = applyRotaryStep(
+                    accumulator = rotaryAccumulator,
+                    delta = it.verticalScrollPixels,
+                    onForward = { onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0))) },
+                    onBackward = { onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0)) }
+                )
                 true
             }
             .pointerInput(flows.size, selectedIndex) {
@@ -518,19 +654,20 @@ private fun CardFlowsScreen(
                         if (dragStartedAtMs == 0L) {
                             dragStartedAtMs = System.currentTimeMillis()
                         }
-                        scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
+                        isDragging = true
+                        dragOffset += amount
                     },
                     onDragEnd = {
-                        val dragSteps = (dragOffset.value / spacingPx).roundToInt()
+                        val dragSteps = (dragOffset / spacingPx).roundToInt()
                         val durationMs = (System.currentTimeMillis() - dragStartedAtMs).coerceAtLeast(1L)
-                        val velocityPxPerMs = kotlin.math.abs(dragOffset.value) / durationMs.toFloat()
+                        val velocityPxPerMs = kotlin.math.abs(dragOffset) / durationMs.toFloat()
                         val fastSwipeBoost = when {
                             velocityPxPerMs > 2.8f -> 2
                             velocityPxPerMs > 1.8f -> 1
                             else -> 0
                         }
                         val boostedSteps = if (dragSteps == 0 && fastSwipeBoost > 0) {
-                            if (dragOffset.value < 0f) 1 else -1
+                            if (dragOffset < 0f) 1 else -1
                         } else if (dragSteps > 0) {
                             dragSteps + fastSwipeBoost
                         } else if (dragSteps < 0) {
@@ -544,11 +681,13 @@ private fun CardFlowsScreen(
                             onSelectedIndexChange(targetIndex)
                         }
                         dragStartedAtMs = 0L
-                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+                        isDragging = false
+                        dragOffset = 0f
                     },
                     onDragCancel = {
                         dragStartedAtMs = 0L
-                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+                        isDragging = false
+                        dragOffset = 0f
                     }
                 )
             },
@@ -572,6 +711,12 @@ private fun CardFlowsScreen(
             val sideCircleSize = (selectedCircleSize * 0.84f).coerceIn(88.dp, 124.dp)
             val railHeight = (selectedCircleSize * 1.28f).coerceIn(150.dp, 208.dp)
             val adaptiveSpacingPx = with(density) { (selectedCircleSize * 0.86f).toPx() }
+            val gestureOffset by animateFloatAsState(
+                targetValue = dragOffset,
+                animationSpec = if (isDragging) spring(stiffness = 1200f, dampingRatio = 1f)
+                else spring(dampingRatio = 0.85f, stiffness = 420f),
+                label = "gestureOffset"
+            )
 
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -585,7 +730,7 @@ private fun CardFlowsScreen(
                 Box(modifier = Modifier.fillMaxWidth().height(railHeight), contentAlignment = Alignment.Center) {
                     flows.forEachIndexed { index, flow ->
                         val targetOffset by animateFloatAsState(
-                            targetValue = ((index - selectedIndex) * adaptiveSpacingPx) + dragOffset.value,
+                            targetValue = ((index - selectedIndex) * adaptiveSpacingPx) + gestureOffset,
                             animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
                             label = "flowOffset$index"
                         )
@@ -678,14 +823,18 @@ private fun NotesScreen(
     textScale: TextScaleOption,
     onTextScaleChange: (TextScaleOption) -> Unit
 ) {
+    val logTag = "NotesScreenRotary"
     var horizontalDragSum by remember { mutableFloatStateOf(0f) }
     var showTray by remember { mutableStateOf(false) }
     val noteScrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
+    val lifecycleOwner = LocalLifecycleOwner.current
     val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
     val starFontSize = (minScreenDp * 0.075f).coerceIn(12f, 18f).sp
-    val starBottomPadding = (minScreenDp * 0.045f).coerceIn(8f, 16f).dp
+    val starBottomPadding = (minScreenDp * 0.015f).coerceIn(2f, 6f).dp
     val trayScrimAlpha by animateFloatAsState(
         targetValue = if (showTray) 0.30f else 0f,
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
@@ -695,11 +844,172 @@ private fun NotesScreen(
     LaunchedEffect(notes.size, showTray) {
         if (!showTray && notes.isNotEmpty()) {
             // Request focus only when the focusable note container is in composition.
+            Log.d(logTag, "Requesting focus (notes.size/showTray effect)")
             focusRequester.requestFocus()
         }
     }
+    LaunchedEffect(Unit) {
+        Log.d(logTag, "Requesting focus (initial composition)")
+        focusRequester.requestFocus()
+    }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    DisposableEffect(lifecycleOwner, notes.size, showTray) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && !showTray && notes.isNotEmpty()) {
+                Log.d(logTag, "Requesting focus (ON_RESUME)")
+                focusRequester.requestFocus()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            .onFocusChanged {
+                Log.d(logTag, "Focus changed: hasFocus=${it.hasFocus}, isFocused=${it.isFocused}")
+            }
+            .onPreRotaryScrollEvent { event ->
+                if (notes.isEmpty()) {
+                    return@onPreRotaryScrollEvent true
+                }
+                val safeRotaryIndex = selectedIndex.coerceIn(0, notes.lastIndex)
+                val updatedAccumulator = applyRotaryStep(
+                    accumulator = rotaryAccumulator,
+                    delta = event.verticalScrollPixels,
+                    onForward = {
+                        val nextIndex = (safeRotaryIndex + 1).coerceIn(0, notes.lastIndex)
+                        onSelectedIndexChange(nextIndex)
+                        Log.d(logTag, "Pre-rotary forward -> index=$nextIndex")
+                    },
+                    onBackward = {
+                        val previousIndex = (safeRotaryIndex - 1).coerceIn(0, notes.lastIndex)
+                        onSelectedIndexChange(previousIndex)
+                        Log.d(logTag, "Pre-rotary backward -> index=$previousIndex")
+                    }
+                )
+                onRotaryAccumulatorChange(updatedAccumulator)
+                Log.d(logTag, "Pre-rotary callback fired: delta=${event.verticalScrollPixels}, accumulator=$updatedAccumulator")
+                true
+            }
+            .onRotaryScrollEvent { event ->
+                if (notes.isEmpty()) {
+                    Log.d(logTag, "Rotary ignored: notes are empty")
+                    return@onRotaryScrollEvent true
+                }
+                val safeRotaryIndex = selectedIndex.coerceIn(0, notes.lastIndex)
+                val updatedAccumulator = applyRotaryStep(
+                    accumulator = rotaryAccumulator,
+                    delta = event.verticalScrollPixels,
+                    onForward = {
+                        val nextIndex = (safeRotaryIndex + 1).coerceIn(0, notes.lastIndex)
+                        onSelectedIndexChange(nextIndex)
+                        Log.d(logTag, "Rotary forward -> index=$nextIndex")
+                    },
+                    onBackward = {
+                        val previousIndex = (safeRotaryIndex - 1).coerceIn(0, notes.lastIndex)
+                        onSelectedIndexChange(previousIndex)
+                        Log.d(logTag, "Rotary backward -> index=$previousIndex")
+                    }
+                )
+                onRotaryAccumulatorChange(updatedAccumulator)
+                Log.d(
+                    logTag,
+                    "Rotary callback fired: verticalScrollPixels=${event.verticalScrollPixels}, accumulator=$updatedAccumulator, safeIndex=$safeRotaryIndex, noteCount=${notes.size}"
+                )
+                true
+            }
+            .pointerInput(notes.size) {
+                var trackingEdgeRotate = false
+                var lastAngle = 0f
+                var edgeAccumulator = 0f
+                var currentGestureIndex = 0
+                var lastEventAtMs = 0L
+                val edgeBandPx = with(density) { EDGE_ROTATION_TOUCH_BAND.toPx() }
+                detectDragGestures(
+                    onDragStart = { start ->
+                        if (notes.isEmpty()) return@detectDragGestures
+                        currentGestureIndex = selectedIndex.coerceIn(0, notes.lastIndex)
+                        val cx = size.width / 2f
+                        val cy = size.height / 2f
+                        val dx = start.x - cx
+                        val dy = start.y - cy
+                        val radius = sqrt((dx * dx) + (dy * dy))
+                        val outerRadius = min(size.width, size.height) / 2f
+                        val edgeThreshold = (outerRadius - edgeBandPx).coerceAtLeast(0f)
+                        trackingEdgeRotate = radius >= edgeThreshold
+                        if (trackingEdgeRotate) {
+                            lastAngle = atan2(dy, dx)
+                            edgeAccumulator = 0f
+                            lastEventAtMs = System.currentTimeMillis()
+                            Log.d(logTag, "Edge rotate touch start (radius=$radius threshold=$edgeThreshold)")
+                        }
+                    },
+                    onDrag = { change, _ ->
+                        if (!trackingEdgeRotate || notes.isEmpty()) return@detectDragGestures
+                        val cx = size.width / 2f
+                        val cy = size.height / 2f
+                        val dx = change.position.x - cx
+                        val dy = change.position.y - cy
+                        val angle = atan2(dy, dx)
+                        var delta = angle - lastAngle
+                        if (delta > PI) delta -= (2 * PI).toFloat()
+                        if (delta < -PI) delta += (2 * PI).toFloat()
+                        lastAngle = angle
+
+                        val syntheticPixels = delta * 220f
+                        val now = System.currentTimeMillis()
+                        val dtMs = (now - lastEventAtMs).coerceAtLeast(1L)
+                        lastEventAtMs = now
+                        val velocityPxPerMs = kotlin.math.abs(syntheticPixels) / dtMs.toFloat()
+                        val speedFactor = when {
+                            velocityPxPerMs > 2.4f -> 0.35f
+                            velocityPxPerMs > 1.6f -> 0.50f
+                            velocityPxPerMs > 1.0f -> 0.70f
+                            else -> 1f
+                        }
+                        val dynamicThreshold = (2.2f * speedFactor).coerceAtLeast(0.9f)
+
+                        edgeAccumulator += syntheticPixels
+                        var forwardSteps = 0
+                        while (edgeAccumulator >= dynamicThreshold && forwardSteps < 3) {
+                            val nextIndex = (currentGestureIndex + 1).coerceIn(0, notes.lastIndex)
+                            if (nextIndex == currentGestureIndex) break
+                            currentGestureIndex = nextIndex
+                            onSelectedIndexChange(currentGestureIndex)
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            Log.d(logTag, "Edge rotate forward -> index=$currentGestureIndex velocity=$velocityPxPerMs threshold=$dynamicThreshold")
+                            edgeAccumulator -= dynamicThreshold
+                            forwardSteps++
+                        }
+                        var backwardSteps = 0
+                        while (edgeAccumulator <= -dynamicThreshold && backwardSteps < 3) {
+                            val previousIndex = (currentGestureIndex - 1).coerceIn(0, notes.lastIndex)
+                            if (previousIndex == currentGestureIndex) break
+                            currentGestureIndex = previousIndex
+                            onSelectedIndexChange(currentGestureIndex)
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            Log.d(logTag, "Edge rotate backward -> index=$currentGestureIndex velocity=$velocityPxPerMs threshold=$dynamicThreshold")
+                            edgeAccumulator += dynamicThreshold
+                            backwardSteps++
+                        }
+                        Log.d(logTag, "Edge rotate drag deltaRad=$delta syntheticPixels=$syntheticPixels accumulator=$edgeAccumulator velocity=$velocityPxPerMs")
+                        change.consume()
+                    },
+                    onDragEnd = {
+                        trackingEdgeRotate = false
+                        edgeAccumulator = 0f
+                    },
+                    onDragCancel = {
+                        trackingEdgeRotate = false
+                        edgeAccumulator = 0f
+                    }
+                )
+            }
+    ) {
         if (notes.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -735,24 +1045,13 @@ private fun NotesScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .focusRequester(focusRequester)
-                .focusable()
-                .onRotaryScrollEvent {
-                    var updated = rotaryAccumulator + it.verticalScrollPixels
-                    when {
-                        updated > 25f -> {
-                            onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex))
-                            updated = 0f
-                        }
+                .background(noteRadialGradient(note))
+        )
 
-                        updated < -25f -> {
-                            onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0))
-                            updated = 0f
-                        }
-                    }
-                    onRotaryAccumulatorChange(updated)
-                    true
-                }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(OUTER_GESTURE_FREE_EDGE_MARGIN)
                 .let { base ->
                     if (enableHorizontalSwipe) {
                         base.pointerInput(safeIndex, notes.size) {
@@ -760,8 +1059,16 @@ private fun NotesScreen(
                                 onHorizontalDrag = { _, dragAmount -> horizontalDragSum += dragAmount },
                                 onDragEnd = {
                                     when {
-                                        horizontalDragSum > 36f -> onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0))
-                                        horizontalDragSum < -36f -> onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex))
+                                        horizontalDragSum > 36f -> {
+                                            val target = (safeIndex - 1).coerceAtLeast(0)
+                                            onSelectedIndexChange(target)
+                                            Log.d(logTag, "Inner swipe backward -> index=$target")
+                                        }
+                                        horizontalDragSum < -36f -> {
+                                            val target = (safeIndex + 1).coerceAtMost(notes.lastIndex)
+                                            onSelectedIndexChange(target)
+                                            Log.d(logTag, "Inner swipe forward -> index=$target")
+                                        }
                                     }
                                     horizontalDragSum = 0f
                                 },
@@ -775,17 +1082,22 @@ private fun NotesScreen(
                 .pointerInput(note.id, showTray) {
                     detectTapGestures(
                         onLongPress = {
+                            Log.d(logTag, "Inner long press fired")
                             if (!showTray) onLongPressExit()
                         },
-                        onDoubleTap = { showTray = !showTray },
+                        onDoubleTap = {
+                            Log.d(logTag, "Inner double tap fired")
+                            showTray = !showTray
+                        },
                         onTap = {
+                            Log.d(logTag, "Inner tap fired")
                             if (!showTray) {
                                 onFlip(note.id)
                             }
                         }
                     )
                 }
-                .padding(8.dp)
+                .padding(NOTE_EDGE_PADDING)
                 .clip(RoundedCornerShape(999.dp))
                 .background(noteRadialGradient(note)),
             contentAlignment = Alignment.Center
@@ -793,7 +1105,7 @@ private fun NotesScreen(
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(vertical = 14.dp)
+                    .padding(vertical = NOTE_CONTENT_VERTICAL_PADDING)
             ) {
                 val density = LocalDensity.current
                 val textMeasurer = rememberTextMeasurer()
@@ -801,7 +1113,7 @@ private fun NotesScreen(
                 val headerReserved = 30.dp
                 val baseFontSize = adaptiveFontSize(text) * textScale.factor
 // These match your real layout
-                val outerVerticalPadding = 14.dp          // from BoxWithConstraints padding(vertical = 14.dp)
+                val outerVerticalPadding = NOTE_CONTENT_VERTICAL_PADDING
                 val contentTopPadding = 26.dp            // from non-scroll Box padding(top = 26.dp)
                 val contentBottomPadding = 34.dp         // from non-scroll Box padding(bottom = 34.dp)
 
@@ -954,7 +1266,19 @@ private fun NotesScreen(
 
 private enum class AppScreen {
     CardFlows,
-    Notes
+    Notes;
+
+    val storageKey: String
+        get() = when (this) {
+            CardFlows -> "card_flows"
+            Notes -> "notes"
+        }
+
+    companion object {
+        fun fromStorage(value: String): AppScreen {
+            return entries.firstOrNull { it.storageKey == value } ?: CardFlows
+        }
+    }
 }
 
 private data class CardFlow(
@@ -999,28 +1323,57 @@ private data class DiscoveredService(
 private data class ConnectionTarget(val host: String, val port: Int)
 
 private class PhoneImportClient(context: Context) {
+    private val logTag = "PhoneImportClient"
     private val appContext = context.applicationContext
     private val nsdManager = appContext.getSystemService(Context.NSD_SERVICE) as NsdManager
+    private val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
     private val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient.Builder().build()
 
-    suspend fun discoverServices(timeoutMs: Long): List<DiscoveredService> = withContext(Dispatchers.IO) {
+    suspend fun discoverServices(
+        timeoutMs: Long,
+        onLog: (String) -> Unit = {}
+    ): List<DiscoveredService> = withContext(Dispatchers.IO) {
+        Log.d(logTag, "NSD discovery start: timeoutMs=$timeoutMs")
+        onLog("NSD discovery start: timeoutMs=$timeoutMs")
         val found = ConcurrentHashMap<String, DiscoveredService>()
+        val multicastLock = wifiManager.createMulticastLock("wearstickynotes:nsd").apply {
+            setReferenceCounted(false)
+        }
         val listener = object : NsdManager.DiscoveryListener {
-            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
-            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
-            override fun onDiscoveryStarted(serviceType: String) = Unit
-            override fun onDiscoveryStopped(serviceType: String) = Unit
+            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+                Log.e(logTag, "onStartDiscoveryFailed: serviceType=$serviceType, errorCode=$errorCode")
+                onLog("Discovery start failed (code=$errorCode).")
+            }
+            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
+                Log.e(logTag, "onStopDiscoveryFailed: serviceType=$serviceType, errorCode=$errorCode")
+                onLog("Discovery stop failed (code=$errorCode).")
+            }
+            override fun onDiscoveryStarted(serviceType: String) {
+                Log.d(logTag, "onDiscoveryStarted: $serviceType")
+                onLog("Discovery started for $serviceType.")
+            }
+            override fun onDiscoveryStopped(serviceType: String) {
+                Log.d(logTag, "onDiscoveryStopped: $serviceType")
+                onLog("Discovery stopped.")
+            }
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                 if (serviceInfo.serviceType != "_timescape._tcp.") return
+                Log.d(logTag, "onServiceFound: name=${serviceInfo.serviceName}, type=${serviceInfo.serviceType}")
+                onLog("Service found: ${serviceInfo.serviceName}. Resolving…")
                 Thread {
                     runCatching {
                         kotlinx.coroutines.runBlocking {
                             resolve(serviceInfo)?.let { resolved ->
                                 found["${resolved.host}:${resolved.port}"] = resolved
+                                Log.d(logTag, "resolve success: ${resolved.host}:${resolved.port} (${resolved.displayName})")
+                                onLog("Resolved ${resolved.displayName} (${resolved.host}:${resolved.port}).")
                             }
                         }
+                    }.onFailure {
+                        Log.e(logTag, "Resolve thread failed for ${serviceInfo.serviceName}", it)
+                        onLog("Resolve thread failure: ${it.message}")
                     }
                 }.start()
             }
@@ -1028,12 +1381,42 @@ private class PhoneImportClient(context: Context) {
             override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
         }
 
+        runCatching { multicastLock.acquire() }
+            .onSuccess {
+                Log.d(logTag, "Multicast lock acquired for NSD scan.")
+                onLog("Multicast lock acquired for NSD scan.")
+            }
+            .onFailure {
+                Log.e(logTag, "Unable to acquire multicast lock", it)
+                onLog("Unable to acquire multicast lock: ${it.message}")
+            }
+
         runCatching {
             nsdManager.discoverServices("_timescape._tcp", NsdManager.PROTOCOL_DNS_SD, listener)
             delay(timeoutMs)
+        }.onFailure {
+            Log.e(logTag, "discoverServices failed", it)
+            onLog("discoverServices exception: ${it.message}")
+            onLog(it.stackTraceToString())
         }
 
         runCatching { nsdManager.stopServiceDiscovery(listener) }
+            .onFailure {
+                Log.e(logTag, "stopServiceDiscovery failed", it)
+                onLog("stopServiceDiscovery exception: ${it.message}")
+            }
+        runCatching {
+            if (multicastLock.isHeld) {
+                multicastLock.release()
+                Log.d(logTag, "Multicast lock released.")
+                onLog("Multicast lock released.")
+            }
+        }.onFailure {
+            Log.e(logTag, "Multicast lock release failed", it)
+            onLog("Multicast lock release failed: ${it.message}")
+        }
+        Log.d(logTag, "NSD discovery end: found=${found.size}")
+        onLog("NSD discovery end: found=${found.size}")
         found.values.sortedBy { it.displayName }
     }
 
@@ -1041,6 +1424,7 @@ private class PhoneImportClient(context: Context) {
         suspendCancellableCoroutine { cont ->
             val listener = object : NsdManager.ResolveListener {
                 override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                    Log.e(logTag, "onResolveFailed: service=${serviceInfo.serviceName}, errorCode=$errorCode")
                     if (cont.isActive) cont.resume(null)
                 }
 
@@ -1063,31 +1447,54 @@ private class PhoneImportClient(context: Context) {
         target: ConnectionTarget,
         clientName: String,
         onWaiting: () -> Unit,
-        onDownloading: () -> Unit
+        onDownloading: () -> Unit,
+        onLog: (String) -> Unit = {}
     ): Result<List<StickyNote>> = withContext(Dispatchers.IO) {
         runCatching {
             val base = "http://${target.host}:${target.port}"
+            onLog("Using base URL: $base")
+            Log.d(logTag, "Import target host/port: ${target.host}:${target.port}")
 
             // Optional, ignore failures
             runCatching {
                 val metaRequest = Request.Builder().url("$base/meta").get().build()
-                client.newCall(metaRequest).execute().close()
+                Log.d(logTag, "HTTP GET ${metaRequest.url}")
+                client.newCall(metaRequest).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    Log.d(logTag, "HTTP ${response.code} ${metaRequest.url} body=${body.take(500)}")
+                    onLog("/meta -> ${response.code}: ${body.take(120)}")
+                }
+                onLog("Optional /meta check completed.")
+            }.onFailure {
+                Log.e(logTag, "Optional /meta failed", it)
+                onLog("Optional /meta failed: ${it.message}")
             }
 
-            val sessionId = requestSession(base, clientName)
+            val sessionId = requestSession(base, clientName, onLog)
+            onLog("Session requested: $sessionId")
             onWaiting()
-            val token = pollSession(base, sessionId)
+            onLog("Waiting for phone approval…")
+            val token = pollSession(base, sessionId, onLog)
             onDownloading()
+            onLog("Approval received. Downloading export…")
             val exportRequest = Request.Builder().url("$base/export?token=$token").get().build()
+            Log.d(logTag, "HTTP GET ${exportRequest.url}")
             val payload = client.newCall(exportRequest).execute().use { response ->
+                val bodyText = response.body?.string().orEmpty()
+                Log.d(logTag, "HTTP ${response.code} ${exportRequest.url} body=${bodyText.take(500)}")
                 if (!response.isSuccessful) error("Export failed (${response.code})")
-                response.body?.string().orEmpty()
+                bodyText
             }
+            onLog("Export downloaded (${payload.length} bytes). Parsing JSON…")
             json.decodeFromString<StickyNotesFile>(payload).stickyNotes
+        }.onFailure { throwable ->
+            Log.e(logTag, "importFromTarget failed", throwable)
+            onLog("importFromTarget exception: ${throwable.message}")
+            onLog(throwable.stackTraceToString())
         }
     }
 
-    private fun requestSession(base: String, clientName: String): String {
+    private fun requestSession(base: String, clientName: String, onLog: (String) -> Unit): String {
         val body = json.encodeToString(
             SessionRequest(
                 clientId = UUID.randomUUID().toString(),
@@ -1095,24 +1502,35 @@ private class PhoneImportClient(context: Context) {
             )
         ).toRequestBody("application/json".toMediaType())
 
+        onLog("POST $base/session/request")
         val req = Request.Builder().url("$base/session/request").post(body).build()
+        Log.d(logTag, "HTTP POST ${req.url}")
         val res = client.newCall(req).execute().use { response ->
+            val responseBody = response.body?.string().orEmpty()
+            Log.d(logTag, "HTTP ${response.code} ${req.url} body=${responseBody.take(500)}")
+            onLog("/session/request -> ${response.code}: ${responseBody.take(120)}")
             if (!response.isSuccessful) error("Session request failed (${response.code})")
-            response.body?.string().orEmpty()
+            responseBody
         }
         return json.decodeFromString<SessionRequestResponse>(res).sessionId
     }
 
-    private suspend fun pollSession(base: String, sessionId: String): String {
+    private suspend fun pollSession(base: String, sessionId: String, onLog: (String) -> Unit): String {
         val timeoutMs = 30_000L
         val start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < timeoutMs) {
+            onLog("GET $base/session/status?sessionId=$sessionId")
             val req = Request.Builder().url("$base/session/status?sessionId=$sessionId").get().build()
+            Log.d(logTag, "HTTP GET ${req.url}")
             val body = client.newCall(req).execute().use { response ->
+                val responseBody = response.body?.string().orEmpty()
+                Log.d(logTag, "HTTP ${response.code} ${req.url} body=${responseBody.take(500)}")
+                onLog("/session/status -> ${response.code}: ${responseBody.take(120)}")
                 if (!response.isSuccessful) error("Status failed (${response.code})")
-                response.body?.string().orEmpty()
+                responseBody
             }
             val status = json.decodeFromString<SessionStatusResponse>(body)
+            onLog("Phone status: ${status.status}")
             when (status.status.uppercase()) {
                 "APPROVED" -> return status.token ?: error("Missing token")
                 "DENIED" -> error("Denied on phone")
