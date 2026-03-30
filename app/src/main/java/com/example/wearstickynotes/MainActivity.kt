@@ -27,6 +27,7 @@ import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -109,6 +110,10 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.min
+import kotlin.math.sqrt
+import kotlin.math.PI
 import kotlin.coroutines.resume
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -118,6 +123,7 @@ private val SCREEN_EDGE_PADDING = 0.dp
 private val NOTE_EDGE_PADDING = 0.dp
 private val NOTE_CONTENT_VERTICAL_PADDING = 4.dp
 private val OUTER_GESTURE_FREE_EDGE_MARGIN = 4.dp
+private val EDGE_ROTATION_TOUCH_BAND = 22.dp
 
 private fun applyRotaryStep(
     accumulator: Float,
@@ -822,6 +828,7 @@ private fun NotesScreen(
     val focusRequester = remember { FocusRequester() }
     val lifecycleOwner = LocalLifecycleOwner.current
     val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
     val starFontSize = (minScreenDp * 0.075f).coerceIn(12f, 18f).sp
     val starBottomPadding = (minScreenDp * 0.015f).coerceIn(2f, 6f).dp
@@ -911,6 +918,62 @@ private fun NotesScreen(
                     "Rotary callback fired: verticalScrollPixels=${event.verticalScrollPixels}, accumulator=$updatedAccumulator, safeIndex=$safeRotaryIndex, noteCount=${notes.size}"
                 )
                 true
+            }
+            .pointerInput(notes.size, selectedIndex) {
+                var trackingEdgeRotate = false
+                var lastAngle = 0f
+                val edgeBandPx = with(density) { EDGE_ROTATION_TOUCH_BAND.toPx() }
+                detectDragGestures(
+                    onDragStart = { start ->
+                        if (notes.isEmpty()) return@detectDragGestures
+                        val cx = size.width / 2f
+                        val cy = size.height / 2f
+                        val dx = start.x - cx
+                        val dy = start.y - cy
+                        val radius = sqrt((dx * dx) + (dy * dy))
+                        val outerRadius = min(size.width, size.height) / 2f
+                        val edgeThreshold = (outerRadius - edgeBandPx).coerceAtLeast(0f)
+                        trackingEdgeRotate = radius >= edgeThreshold
+                        if (trackingEdgeRotate) {
+                            lastAngle = atan2(dy, dx)
+                            Log.d(logTag, "Edge rotate touch start (radius=$radius threshold=$edgeThreshold)")
+                        }
+                    },
+                    onDrag = { change, _ ->
+                        if (!trackingEdgeRotate || notes.isEmpty()) return@detectDragGestures
+                        val cx = size.width / 2f
+                        val cy = size.height / 2f
+                        val dx = change.position.x - cx
+                        val dy = change.position.y - cy
+                        val angle = atan2(dy, dx)
+                        var delta = angle - lastAngle
+                        if (delta > PI) delta -= (2 * PI).toFloat()
+                        if (delta < -PI) delta += (2 * PI).toFloat()
+                        lastAngle = angle
+
+                        val safeRotaryIndex = selectedIndex.coerceIn(0, notes.lastIndex)
+                        val syntheticPixels = delta * 120f
+                        val updatedAccumulator = applyRotaryStep(
+                            accumulator = rotaryAccumulator,
+                            delta = syntheticPixels,
+                            onForward = {
+                                val nextIndex = (safeRotaryIndex + 1).coerceIn(0, notes.lastIndex)
+                                onSelectedIndexChange(nextIndex)
+                                Log.d(logTag, "Edge rotate forward -> index=$nextIndex")
+                            },
+                            onBackward = {
+                                val previousIndex = (safeRotaryIndex - 1).coerceIn(0, notes.lastIndex)
+                                onSelectedIndexChange(previousIndex)
+                                Log.d(logTag, "Edge rotate backward -> index=$previousIndex")
+                            }
+                        )
+                        onRotaryAccumulatorChange(updatedAccumulator)
+                        Log.d(logTag, "Edge rotate drag deltaRad=$delta syntheticPixels=$syntheticPixels")
+                        change.consume()
+                    },
+                    onDragEnd = { trackingEdgeRotate = false },
+                    onDragCancel = { trackingEdgeRotate = false }
+                )
             }
     ) {
         if (notes.isEmpty()) {
