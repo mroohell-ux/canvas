@@ -1,6 +1,8 @@
 package com.example.wearstickynotes
 
 import android.content.Context
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Bundle
@@ -78,6 +80,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
@@ -752,6 +755,38 @@ private fun NotesScreen(
                 .fillMaxSize()
                 .focusRequester(focusRequester)
                 .focusable()
+                .pointerInteropFilter { motionEvent ->
+                    if (motionEvent.action == MotionEvent.ACTION_SCROLL) {
+                        val sourceHasRotary = motionEvent.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER)
+                        val vertical = motionEvent.getAxisValue(MotionEvent.AXIS_VSCROLL)
+                        val horizontal = motionEvent.getAxisValue(MotionEvent.AXIS_HSCROLL)
+                        val dominant = if (kotlin.math.abs(vertical) >= kotlin.math.abs(horizontal)) vertical else horizontal
+
+                        Log.d(
+                            DEBUG_TAG,
+                            "Input signal: genericMotion action=SCROLL sourceRotary=$sourceHasRotary v=$vertical h=$horizontal page=${pagerState.currentPage}"
+                        )
+
+                        if (dominant > 0.5f) {
+                            val previous = (pagerState.currentPage - 1).coerceAtLeast(0)
+                            if (previous != pagerState.currentPage) {
+                                scope.launch { pagerState.animateScrollToPage(previous) }
+                            }
+                            onRotaryAccumulatorChange(0f)
+                            return@pointerInteropFilter true
+                        }
+
+                        if (dominant < -0.5f) {
+                            val next = (pagerState.currentPage + 1).coerceAtMost(notes.lastIndex)
+                            if (next != pagerState.currentPage) {
+                                scope.launch { pagerState.animateScrollToPage(next) }
+                            }
+                            onRotaryAccumulatorChange(0f)
+                            return@pointerInteropFilter true
+                        }
+                    }
+                    false
+                }
                 .onRotaryScrollEvent {
                     Log.d(
                         DEBUG_TAG,
