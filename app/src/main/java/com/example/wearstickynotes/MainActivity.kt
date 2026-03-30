@@ -753,6 +753,10 @@ private fun NotesScreen(
                 .focusRequester(focusRequester)
                 .focusable()
                 .onRotaryScrollEvent {
+                    Log.d(
+                        DEBUG_TAG,
+                        "Input signal: rotary delta=${it.verticalScrollPixels}, page=${pagerState.currentPage}"
+                    )
                     var updated = rotaryAccumulator + it.verticalScrollPixels
                     when {
                         updated > 25f -> {
@@ -797,10 +801,15 @@ private fun NotesScreen(
                         .pointerInput(note.id, showTray) {
                             detectTapGestures(
                                 onLongPress = {
+                                    Log.d(DEBUG_TAG, "Input signal: longPress noteId=${note.id}, trayOpen=$showTray")
                                     if (!showTray) onLongPressExit()
                                 },
-                                onDoubleTap = { showTray = !showTray },
+                                onDoubleTap = {
+                                    Log.d(DEBUG_TAG, "Input signal: doubleTap noteId=${note.id}, togglingTrayTo=${!showTray}")
+                                    showTray = !showTray
+                                },
                                 onTap = {
+                                    Log.d(DEBUG_TAG, "Input signal: tap noteId=${note.id}, trayOpen=$showTray")
                                     if (!showTray) {
                                         onFlip(note.id)
                                     }
