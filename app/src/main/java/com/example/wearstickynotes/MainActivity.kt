@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -108,6 +109,8 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.math.abs
 import kotlin.coroutines.resume
+
+private const val DEBUG_TAG = "WearStickyNotes"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -738,6 +741,7 @@ private fun NotesScreen(
             snapshotFlow { pagerState.currentPage }
                 .collect { page ->
                     if (notes.isNotEmpty()) {
+                        Log.d(DEBUG_TAG, "Notes pager page changed to $page (total=${notes.size})")
                         onSelectedIndexChange(page.coerceIn(0, notes.lastIndex))
                     }
                 }
