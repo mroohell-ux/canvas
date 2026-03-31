@@ -1,9 +1,12 @@
 package com.example.wearstickynotes
 
 import android.content.Context
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -26,6 +29,8 @@ import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,15 +57,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,7 +79,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
@@ -82,10 +91,12 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -105,6 +116,14 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.math.abs
 import kotlin.coroutines.resume
+import kotlin.random.Random
+
+private const val DEBUG_TAG = "WearStickyNotes"
+private const val SWIPE_MIN_FLING_VELOCITY_PX = 650f
+private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2800f
+private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
+private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
+private const val SWIPE_MAX_PAGES_PER_FLING = 3
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -141,9 +160,28 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         mutableStateListOf<StickyNote>().apply { addAll(initialNotes) }
     }
 
-    var appScreen by remember { mutableStateOf(AppScreen.CardFlows) }
-    var selectedFlowIndex by remember { mutableIntStateOf(0) }
-    val flowLastOpenedNoteIndex = remember { mutableStateMapOf<Long, Int>() }
+    val initialAppScreen = remember(prefs) {
+        if (prefs.getBoolean("last_screen_notes", false)) AppScreen.Notes else AppScreen.CardFlows
+    }
+    val initialSelectedFlowId = remember(prefs) {
+        if (prefs.contains("last_selected_flow_id")) prefs.getLong("last_selected_flow_id", Long.MIN_VALUE) else null
+    }
+
+    var appScreen by rememberSaveable { mutableStateOf(initialAppScreen) }
+    var selectedFlowIndex by rememberSaveable { mutableIntStateOf(0) }
+    var pendingRestoreFlowId by remember { mutableStateOf(initialSelectedFlowId) }
+    val initialFlowLastOpened = remember(prefs, storageJson) {
+        runCatching {
+            prefs.getString("flow_last_opened_note_index", null)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { storageJson.decodeFromString<Map<String, Int>>(it) }
+        }.getOrNull().orEmpty()
+            .mapNotNull { (key, value) -> key.toLongOrNull()?.let { id -> id to value } }
+            .toMap()
+    }
+    val flowLastOpenedNoteIndex = remember {
+        mutableStateMapOf<Long, Int>().apply { putAll(initialFlowLastOpened) }
+    }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     var importState by remember { mutableStateOf<ImportState>(ImportState.Idle) }
     var services by remember { mutableStateOf(emptyList<DiscoveredService>()) }
@@ -167,6 +205,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     }
 
     var shuffleMode by remember { mutableStateOf(initialShuffleMode) }
+    var shuffleSeed by remember { mutableIntStateOf(0) }
     var textScale by remember { mutableStateOf(initialTextScale) }
     val noteSideState = remember { mutableStateMapOf<String, Boolean>() }
     val collectionNoteState = remember {
@@ -175,12 +214,17 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         }
     }
 
+    fun stableShuffledNotes(list: List<StickyNote>, seed: Long): List<StickyNote> {
+        val sorted = list.sortedBy { it.id }
+        return if (shuffleMode) sorted.shuffled(Random(seed)) else sorted
+    }
+
     val groupedFlows = notes.groupBy { "${it.flowId}|${it.flowName}" }
         .map { (_, flowNotes) ->
             CardFlow(
                 id = flowNotes.first().flowId,
                 name = flowNotes.first().flowName,
-                notes = if (shuffleMode) flowNotes.shuffled() else flowNotes.sortedBy { it.id }
+                notes = stableShuffledNotes(flowNotes, shuffleSeed.toLong() + flowNotes.first().flowId)
             )
         }
         .sortedBy { it.name }
@@ -188,11 +232,14 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     val allNotesFlow = CardFlow(
         id = Long.MIN_VALUE,
         name = "All Notes",
-        notes = if (shuffleMode) notes.shuffled() else notes.sortedBy { it.id }
+        notes = stableShuffledNotes(notes, shuffleSeed.toLong() + Long.MIN_VALUE)
     )
     val collectionNotes = notes
         .filter { collectionNoteState[it.id] == true }
-        .let { if (shuffleMode) it.shuffled() else it.sortedWith(compareBy<StickyNote> { it.cardTitle }.thenBy { it.id }) }
+        .let { filtered ->
+            val sorted = filtered.sortedWith(compareBy<StickyNote> { it.cardTitle }.thenBy { it.id })
+            if (shuffleMode) sorted.shuffled(Random(shuffleSeed.toLong() + (Long.MIN_VALUE + 1))) else sorted
+        }
 
     val collectionsFlow = CardFlow(
         id = Long.MIN_VALUE + 1,
@@ -206,13 +253,20 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         addAll(groupedFlows)
     }
 
+    LaunchedEffect(flowBuckets, pendingRestoreFlowId) {
+        val restoreFlowId = pendingRestoreFlowId ?: return@LaunchedEffect
+        val restoredIndex = flowBuckets.indexOfFirst { it.id == restoreFlowId }
+        if (restoredIndex >= 0) {
+            selectedFlowIndex = restoredIndex
+        }
+        pendingRestoreFlowId = null
+    }
+
     val safeFlowIndex = selectedFlowIndex.coerceIn(0, (flowBuckets.lastIndex).coerceAtLeast(0))
     val activeFlow = flowBuckets.getOrNull(safeFlowIndex)
     val flowNotes = activeFlow?.notes.orEmpty()
     val rememberedNoteIndex = activeFlow?.let { flowLastOpenedNoteIndex[it.id] ?: 0 } ?: 0
     val safeNoteIndex = rememberedNoteIndex.coerceIn(0, (flowNotes.lastIndex).coerceAtLeast(0))
-    val currentNote = flowNotes.getOrNull(safeNoteIndex)
-    val showBack = currentNote?.let { noteSideState[it.id] ?: false } ?: false
 
     LaunchedEffect(shuffleMode) {
         prefs.edit().putBoolean("shuffle_mode", shuffleMode).apply()
@@ -239,6 +293,27 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         prefs.edit()
             .putString("collection_note_ids", storageJson.encodeToString(selectedCollectionIds))
             .apply()
+    }
+
+    LaunchedEffect(flowLastOpenedNoteIndex.toMap()) {
+        val asStorageMap = flowLastOpenedNoteIndex.mapKeys { it.key.toString() }
+        prefs.edit()
+            .putString("flow_last_opened_note_index", storageJson.encodeToString(asStorageMap))
+            .apply()
+    }
+
+    LaunchedEffect(appScreen) {
+        prefs.edit()
+            .putBoolean("last_screen_notes", appScreen == AppScreen.Notes)
+            .apply()
+    }
+
+    LaunchedEffect(selectedFlowIndex, flowBuckets) {
+        flowBuckets.getOrNull(selectedFlowIndex)?.let { flow ->
+            prefs.edit()
+                .putLong("last_selected_flow_id", flow.id)
+                .apply()
+        }
     }
 
     fun onImported(imported: List<StickyNote>) {
@@ -350,28 +425,31 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                         flowName = activeFlow?.name ?: "Flow",
                         notes = flowNotes,
                         selectedIndex = safeNoteIndex,
-                        showBack = showBack,
                         rotaryAccumulator = rotaryAccumulator,
                         onRotaryAccumulatorChange = { rotaryAccumulator = it },
                         onSelectedIndexChange = { index ->
                             activeFlow?.let { flow -> flowLastOpenedNoteIndex[flow.id] = index }
                         },
+                        isNoteBackVisible = { noteId -> noteSideState[noteId] ?: false },
                         onFlip = { noteId ->
                             val current = noteSideState[noteId] ?: false
                             noteSideState[noteId] = !current
                         },
                         onLongPressExit = { appScreen = AppScreen.CardFlows },
                         isCollectionsFlow = activeFlow?.id == (Long.MIN_VALUE + 1),
-                        isInCollection = currentNote?.let { collectionNoteState[it.id] == true } ?: false,
-                        onToggleCollection = {
-                            currentNote?.let { note ->
-                                val current = collectionNoteState[note.id] == true
-                                collectionNoteState[note.id] = !current
-                            }
+                        isNoteInCollection = { noteId -> collectionNoteState[noteId] == true },
+                        onToggleCollection = { noteId ->
+                            val current = collectionNoteState[noteId] == true
+                            collectionNoteState[noteId] = !current
                         },
                         onImportFromPhone = { startDiscovery() },
                         shuffleMode = shuffleMode,
-                        onToggleShuffle = { shuffleMode = !shuffleMode },
+                        onToggleShuffle = {
+                            if (!shuffleMode) {
+                                shuffleSeed = Random.nextInt()
+                            }
+                            shuffleMode = !shuffleMode
+                        },
                         textScale = textScale,
                         onTextScaleChange = { textScale = it }
                     )
@@ -482,7 +560,6 @@ private fun CardFlowsScreen(
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
     val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
-    var dragStartedAtMs by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(flows.size) {
         if (flows.isNotEmpty()) {
@@ -515,39 +592,17 @@ private fun CardFlowsScreen(
             .pointerInput(flows.size, selectedIndex) {
                 detectHorizontalDragGestures(
                     onHorizontalDrag = { _, amount ->
-                        if (dragStartedAtMs == 0L) {
-                            dragStartedAtMs = System.currentTimeMillis()
-                        }
                         scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
                     },
                     onDragEnd = {
                         val dragSteps = (dragOffset.value / spacingPx).roundToInt()
-                        val durationMs = (System.currentTimeMillis() - dragStartedAtMs).coerceAtLeast(1L)
-                        val velocityPxPerMs = kotlin.math.abs(dragOffset.value) / durationMs.toFloat()
-                        val fastSwipeBoost = when {
-                            velocityPxPerMs > 2.8f -> 2
-                            velocityPxPerMs > 1.8f -> 1
-                            else -> 0
-                        }
-                        val boostedSteps = if (dragSteps == 0 && fastSwipeBoost > 0) {
-                            if (dragOffset.value < 0f) 1 else -1
-                        } else if (dragSteps > 0) {
-                            dragSteps + fastSwipeBoost
-                        } else if (dragSteps < 0) {
-                            dragSteps - fastSwipeBoost
-                        } else {
-                            0
-                        }
-
-                        val targetIndex = (selectedIndex - boostedSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
+                        val targetIndex = (selectedIndex - dragSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
                         if (targetIndex != selectedIndex) {
                             onSelectedIndexChange(targetIndex)
                         }
-                        dragStartedAtMs = 0L
                         scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
                     },
                     onDragCancel = {
-                        dragStartedAtMs = 0L
                         scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
                     }
                 )
@@ -645,7 +700,7 @@ private fun FlowCircle(
                 .padding(if (selected) 10.dp else 8.dp)
         ) {
             Text(
-                text = flow.name,
+                text = "${flow.name} (${flow.notes.size})",
                 textAlign = TextAlign.Center,
                 fontSize = if (selected) 11.sp else 9.sp,
                 lineHeight = if (selected) 13.sp else 11.sp,
@@ -657,31 +712,76 @@ private fun FlowCircle(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
 @Composable
 private fun NotesScreen(
     flowName: String,
     notes: List<StickyNote>,
     selectedIndex: Int,
-    showBack: Boolean,
     rotaryAccumulator: Float,
     onRotaryAccumulatorChange: (Float) -> Unit,
     onSelectedIndexChange: (Int) -> Unit,
+    isNoteBackVisible: (String) -> Boolean,
     onFlip: (String) -> Unit,
     onLongPressExit: () -> Unit,
     isCollectionsFlow: Boolean,
-    isInCollection: Boolean,
-    onToggleCollection: () -> Unit,
+    isNoteInCollection: (String) -> Boolean,
+    onToggleCollection: (String) -> Unit,
     onImportFromPhone: () -> Unit,
     shuffleMode: Boolean,
     onToggleShuffle: () -> Unit,
     textScale: TextScaleOption,
     onTextScaleChange: (TextScaleOption) -> Unit
 ) {
-    var horizontalDragSum by remember { mutableFloatStateOf(0f) }
     var showTray by remember { mutableStateOf(false) }
     val noteScrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
+    val pagerState = rememberPagerState(
+        initialPage = selectedIndex.coerceAtLeast(0),
+        pageCount = { notes.size }
+    )
+    val swipeAccelerationConnection = remember(pagerState, notes.size) {
+        object : NestedScrollConnection {
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (notes.isEmpty()) return Velocity.Zero
+
+                val velocityX = available.x
+                val absoluteVelocity = kotlin.math.abs(velocityX)
+                if (absoluteVelocity < SWIPE_MIN_FLING_VELOCITY_PX) {
+                    // Tiny/accidental fling: let pager handle normal settle behavior.
+                    return Velocity.Zero
+                }
+
+                // Preserve the page user already dragged toward and only add
+                // EXTRA pages for stronger flicks, so release result matches
+                // what user saw right before lifting finger.
+                val baseTargetPage = pagerState.targetPage.coerceIn(0, notes.lastIndex)
+                val extraPagesByVelocity = when {
+                    absoluteVelocity >= SWIPE_ACCEL_VELOCITY_4_PAGES -> 3
+                    absoluteVelocity >= SWIPE_ACCEL_VELOCITY_3_PAGES -> 2
+                    absoluteVelocity >= SWIPE_ACCEL_VELOCITY_2_PAGES -> 1
+                    else -> 0
+                }
+
+                val direction = if (velocityX < 0f) 1 else -1
+                val targetPage = (baseTargetPage + (extraPagesByVelocity * direction))
+                    .coerceIn(0, notes.lastIndex)
+                val pagesSkipped = kotlin.math.abs(targetPage - pagerState.currentPage)
+
+                if (targetPage != baseTargetPage && pagesSkipped <= SWIPE_MAX_PAGES_PER_FLING) {
+                    Log.d(
+                        DEBUG_TAG,
+                        "Input signal: fling velocityX=$velocityX base=$baseTargetPage extra=$extraPagesByVelocity target=$targetPage from=${pagerState.currentPage}"
+                    )
+                    scope.launch { pagerState.animateScrollToPage(targetPage) }
+                    return available
+                }
+
+                return Velocity.Zero
+            }
+        }
+    }
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
     val starFontSize = (minScreenDp * 0.075f).coerceIn(12f, 18f).sp
@@ -722,14 +822,25 @@ private fun NotesScreen(
             return@Box
         }
 
-        val safeIndex = selectedIndex.coerceIn(0, notes.lastIndex)
-        val note = notes[safeIndex]
-        val text = if (showBack) note.back.text else note.front.text
-        val label = if (showBack) note.back.label else note.front.label
-        val enableHorizontalSwipe = text.length < 140
+        LaunchedEffect(notes, selectedIndex) {
+            if (notes.isNotEmpty()) {
+                val targetPage = selectedIndex.coerceIn(0, notes.lastIndex)
+                if (targetPage != pagerState.currentPage) {
+                    pagerState.scrollToPage(targetPage)
+                }
+            }
+        }
 
-        LaunchedEffect(note.id, showBack, textScale) {
-            noteScrollState.scrollTo(0)
+        LaunchedEffect(pagerState, notes.size) {
+            // Use settledPage so parent-selected note updates only after user
+            // releases and pager settles, preventing mid-drag content/color jumps.
+            snapshotFlow { pagerState.settledPage }
+                .collect { page ->
+                    if (notes.isNotEmpty()) {
+                        Log.d(DEBUG_TAG, "Notes pager settled page changed to $page (total=${notes.size})")
+                        onSelectedIndexChange(page.coerceIn(0, notes.lastIndex))
+                    }
+                }
         }
 
         Box(
@@ -737,160 +848,209 @@ private fun NotesScreen(
                 .fillMaxSize()
                 .focusRequester(focusRequester)
                 .focusable()
+                .pointerInteropFilter { motionEvent ->
+                    if (motionEvent.action == MotionEvent.ACTION_SCROLL) {
+                        val sourceHasRotary = motionEvent.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER)
+                        val vertical = motionEvent.getAxisValue(MotionEvent.AXIS_VSCROLL)
+                        val horizontal = motionEvent.getAxisValue(MotionEvent.AXIS_HSCROLL)
+                        val dominant = if (kotlin.math.abs(vertical) >= kotlin.math.abs(horizontal)) vertical else horizontal
+
+                        Log.d(
+                            DEBUG_TAG,
+                            "Input signal: genericMotion action=SCROLL sourceRotary=$sourceHasRotary v=$vertical h=$horizontal page=${pagerState.currentPage}"
+                        )
+
+                        if (dominant > 0.5f) {
+                            val previous = (pagerState.currentPage - 1).coerceAtLeast(0)
+                            if (previous != pagerState.currentPage) {
+                                scope.launch { pagerState.animateScrollToPage(previous) }
+                            }
+                            onRotaryAccumulatorChange(0f)
+                            return@pointerInteropFilter true
+                        }
+
+                        if (dominant < -0.5f) {
+                            val next = (pagerState.currentPage + 1).coerceAtMost(notes.lastIndex)
+                            if (next != pagerState.currentPage) {
+                                scope.launch { pagerState.animateScrollToPage(next) }
+                            }
+                            onRotaryAccumulatorChange(0f)
+                            return@pointerInteropFilter true
+                        }
+                    }
+                    false
+                }
                 .onRotaryScrollEvent {
+                    Log.d(
+                        DEBUG_TAG,
+                        "Input signal: rotary delta=${it.verticalScrollPixels}, page=${pagerState.currentPage}"
+                    )
                     var updated = rotaryAccumulator + it.verticalScrollPixels
                     when {
                         updated > 25f -> {
-                            onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex))
+                            val next = (pagerState.currentPage + 1).coerceAtMost(notes.lastIndex)
+                            if (next != pagerState.currentPage) {
+                                scope.launch { pagerState.animateScrollToPage(next) }
+                            }
                             updated = 0f
                         }
 
                         updated < -25f -> {
-                            onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0))
+                            val previous = (pagerState.currentPage - 1).coerceAtLeast(0)
+                            if (previous != pagerState.currentPage) {
+                                scope.launch { pagerState.animateScrollToPage(previous) }
+                            }
                             updated = 0f
                         }
                     }
                     onRotaryAccumulatorChange(updated)
                     true
-                }
-                .let { base ->
-                    if (enableHorizontalSwipe) {
-                        base.pointerInput(safeIndex, notes.size) {
-                            detectHorizontalDragGestures(
-                                onHorizontalDrag = { _, dragAmount -> horizontalDragSum += dragAmount },
-                                onDragEnd = {
-                                    when {
-                                        horizontalDragSum > 36f -> onSelectedIndexChange((safeIndex - 1).coerceAtLeast(0))
-                                        horizontalDragSum < -36f -> onSelectedIndexChange((safeIndex + 1).coerceAtMost(notes.lastIndex))
-                                    }
-                                    horizontalDragSum = 0f
-                                },
-                                onDragCancel = { horizontalDragSum = 0f }
-                            )
-                        }
-                    } else {
-                        base
-                    }
-                }
-                .pointerInput(note.id, showTray) {
-                    detectTapGestures(
-                        onLongPress = {
-                            if (!showTray) onLongPressExit()
-                        },
-                        onDoubleTap = { showTray = !showTray },
-                        onTap = {
-                            if (!showTray) {
-                                onFlip(note.id)
-                            }
-                        }
-                    )
-                }
-                .padding(8.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(noteRadialGradient(note)),
+                },
             contentAlignment = Alignment.Center
         ) {
-            BoxWithConstraints(
+            HorizontalPager(
+                state = pagerState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(vertical = 14.dp)
-            ) {
-                val density = LocalDensity.current
-                val textMeasurer = rememberTextMeasurer()
-                val horizontalPadding = 22.dp
-                val headerReserved = 30.dp
-                val baseFontSize = adaptiveFontSize(text) * textScale.factor
-// These match your real layout
-                val outerVerticalPadding = 14.dp          // from BoxWithConstraints padding(vertical = 14.dp)
-                val contentTopPadding = 26.dp            // from non-scroll Box padding(top = 26.dp)
-                val contentBottomPadding = 34.dp         // from non-scroll Box padding(bottom = 34.dp)
+                    .nestedScroll(swipeAccelerationConnection)
+            ) { page ->
+                val note = notes[page]
+                val showBack = isNoteBackVisible(note.id)
+                val text = if (showBack) note.back.text else note.front.text
+                val label = if (showBack) note.back.label else note.front.label
 
-                val maxWidthPx = with(density) { (maxWidth - (horizontalPadding * 2)).toPx().roundToInt().coerceAtLeast(1) }
-                //val maxHeightPx = with(density) { (maxHeight - headerReserved).toPx().roundToInt().coerceAtLeast(1) }
-                val maxHeightPx = with(density) {
-                    (maxHeight
-                            - outerVerticalPadding * 2
-                            - headerReserved
-                            - contentTopPadding
-                            - contentBottomPadding
-                            ).toPx().roundToInt().coerceAtLeast(1)
-                }
-                fun fitsOnSingleScreen(fontSize: TextUnit): Boolean {
-                    val layout = textMeasurer.measure(
-                        text = AnnotatedString(text),
-                        style = TextStyle(fontSize = fontSize, lineHeight = fontSize * 1.2),
-                        constraints = Constraints(maxWidth = maxWidthPx)
-                    )
-                    return layout.size.height <= maxHeightPx
+                LaunchedEffect(note.id, showBack, textScale) {
+                    noteScrollState.scrollTo(0)
                 }
 
-                val fitsAtSelectedSize = fitsOnSingleScreen(baseFontSize)
-                val effectiveFontSizeRaw = if (fitsAtSelectedSize) {
-                    listOf(1.30f, 1.22f, 1.16f, 1.10f, 1.06f, 1.0f)
-                        .firstNotNullOfOrNull { factor ->
-                            val candidate = baseFontSize * factor
-                            if (fitsOnSingleScreen(candidate)) candidate else null
-                        } ?: baseFontSize
-                } else {
-                    baseFontSize
-                }
-                val effectiveFontSize = clampToMaxNoteFont(effectiveFontSizeRaw)
-                val needsScroll = !fitsOnSingleScreen(effectiveFontSize)
-                val effectiveLineHeight = effectiveFontSize * 1.2
-                //val useScrollableTopLayout = !fitsAtSelectedSize
-                val useScrollableTopLayout = needsScroll
-                Text(
-                    text = "$flowName • ${safeIndex + 1}/${notes.size} • ${label}",
-                    fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.86f),
-                    textAlign = TextAlign.Center,
+                Box(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 2.dp)
-                )
-
-                if (useScrollableTopLayout) {
-                    CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Top,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(top = headerReserved, bottom = 16.dp)
-                                .verticalScroll(noteScrollState)
-                        ) {
-                            Text(
-                                text = text,
-                                color = Color.White,
-                                fontSize = effectiveFontSize,
-                                lineHeight = effectiveLineHeight,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = horizontalPadding)
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(noteRadialGradient(note))
+                        .pointerInput(note.id, showTray) {
+                            detectTapGestures(
+                                onLongPress = {
+                                    Log.d(DEBUG_TAG, "Input signal: longPress noteId=${note.id}, trayOpen=$showTray")
+                                    if (!showTray) onLongPressExit()
+                                },
+                                onDoubleTap = {
+                                    Log.d(DEBUG_TAG, "Input signal: doubleTap noteId=${note.id}, togglingTrayTo=${!showTray}")
+                                    showTray = !showTray
+                                },
+                                onTap = {
+                                    Log.d(DEBUG_TAG, "Input signal: tap noteId=${note.id}, trayOpen=$showTray")
+                                    if (!showTray) {
+                                        onFlip(note.id)
+                                    }
+                                }
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                        }
-                    }
-                } else {
-                    Box(
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = 20.dp, bottom = 20.dp),
-                            //.padding(top = 26.dp, bottom = 34.dp),
-                        contentAlignment = Alignment.Center
+                            .padding(vertical = 14.dp)
                     ) {
+                        val density = LocalDensity.current
+                        val textMeasurer = rememberTextMeasurer()
+                        val horizontalPadding = 22.dp
+                        val headerReserved = 30.dp
+                        val baseFontSize = adaptiveFontSize(text) * textScale.factor
+
+                        val outerVerticalPadding = 14.dp
+                        val contentTopPadding = 26.dp
+                        val contentBottomPadding = 34.dp
+
+                        val maxWidthPx = with(density) { (maxWidth - (horizontalPadding * 2)).toPx().roundToInt().coerceAtLeast(1) }
+                        val maxHeightPx = with(density) {
+                            (maxHeight
+                                    - outerVerticalPadding * 2
+                                    - headerReserved
+                                    - contentTopPadding
+                                    - contentBottomPadding
+                                    ).toPx().roundToInt().coerceAtLeast(1)
+                        }
+                        fun fitsOnSingleScreen(fontSize: TextUnit): Boolean {
+                            val layout = textMeasurer.measure(
+                                text = AnnotatedString(text),
+                                style = TextStyle(fontSize = fontSize, lineHeight = fontSize * 1.2),
+                                constraints = Constraints(maxWidth = maxWidthPx)
+                            )
+                            return layout.size.height <= maxHeightPx
+                        }
+
+                        val fitsAtSelectedSize = fitsOnSingleScreen(baseFontSize)
+                        val effectiveFontSizeRaw = if (fitsAtSelectedSize) {
+                            listOf(1.30f, 1.22f, 1.16f, 1.10f, 1.06f, 1.0f)
+                                .firstNotNullOfOrNull { factor ->
+                                    val candidate = baseFontSize * factor
+                                    if (fitsOnSingleScreen(candidate)) candidate else null
+                                } ?: baseFontSize
+                        } else {
+                            baseFontSize
+                        }
+                        val effectiveFontSize = clampToMaxNoteFont(effectiveFontSizeRaw)
+                        val needsScroll = !fitsOnSingleScreen(effectiveFontSize)
+                        val effectiveLineHeight = effectiveFontSize * 1.2
+                        val useScrollableTopLayout = needsScroll
                         Text(
-                            text = text,
-                            color = Color.White,
-                            fontSize = effectiveFontSize,
-                            lineHeight = effectiveLineHeight,
+                            text = "$flowName • ${page + 1}/${notes.size} • ${label}",
+                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.86f),
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = horizontalPadding)
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = 2.dp)
                         )
+
+                        if (useScrollableTopLayout) {
+                            CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Top,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(top = headerReserved, bottom = 16.dp)
+                                        .verticalScroll(noteScrollState)
+                                ) {
+                                    Text(
+                                        text = text,
+                                        color = Color.White,
+                                        fontSize = effectiveFontSize,
+                                        lineHeight = effectiveLineHeight,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(horizontal = horizontalPadding)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(top = 20.dp, bottom = 20.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = text,
+                                    color = Color.White,
+                                    fontSize = effectiveFontSize,
+                                    lineHeight = effectiveLineHeight,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = horizontalPadding)
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
 
+        val currentPage = pagerState.currentPage.coerceIn(0, notes.lastIndex)
+        val currentNoteId = notes[currentPage].id
+        val isInCollection = isNoteInCollection(currentNoteId)
         Text(
             text = if (isInCollection) "★" else "☆",
             color = if (isInCollection) Color(0xFFFFD54F) else Color.White,
@@ -898,7 +1058,7 @@ private fun NotesScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = starBottomPadding)
-                .clickable { onToggleCollection() }
+                .clickable { onToggleCollection(currentNoteId) }
         )
 
         if (trayScrimAlpha > 0.001f) {
