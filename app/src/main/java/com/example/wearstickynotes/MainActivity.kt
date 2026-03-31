@@ -79,6 +79,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
@@ -94,6 +96,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -115,6 +118,11 @@ import kotlin.math.abs
 import kotlin.coroutines.resume
 
 private const val DEBUG_TAG = "WearStickyNotes"
+private const val SWIPE_MIN_FLING_VELOCITY_PX = 140f
+private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 1500f
+private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 2500f
+private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 3600f
+private const val SWIPE_MAX_PAGES_PER_FLING = 4
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -153,7 +161,18 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
     var appScreen by remember { mutableStateOf(AppScreen.CardFlows) }
     var selectedFlowIndex by remember { mutableIntStateOf(0) }
-    val flowLastOpenedNoteIndex = remember { mutableStateMapOf<Long, Int>() }
+    val initialFlowLastOpened = remember(prefs, storageJson) {
+        runCatching {
+            prefs.getString("flow_last_opened_note_index", null)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { storageJson.decodeFromString<Map<String, Int>>(it) }
+        }.getOrNull().orEmpty()
+            .mapNotNull { (key, value) -> key.toLongOrNull()?.let { id -> id to value } }
+            .toMap()
+    }
+    val flowLastOpenedNoteIndex = remember {
+        mutableStateMapOf<Long, Int>().apply { putAll(initialFlowLastOpened) }
+    }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     var importState by remember { mutableStateOf<ImportState>(ImportState.Idle) }
     var services by remember { mutableStateOf(emptyList<DiscoveredService>()) }
@@ -246,6 +265,13 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
         prefs.edit()
             .putString("collection_note_ids", storageJson.encodeToString(selectedCollectionIds))
+            .apply()
+    }
+
+    LaunchedEffect(flowLastOpenedNoteIndex.toMap()) {
+        val asStorageMap = flowLastOpenedNoteIndex.mapKeys { it.key.toString() }
+        prefs.edit()
+            .putString("flow_last_opened_note_index", storageJson.encodeToString(asStorageMap))
             .apply()
     }
 
@@ -692,6 +718,44 @@ private fun NotesScreen(
         initialPage = selectedIndex.coerceAtLeast(0),
         pageCount = { notes.size }
     )
+    val swipeAccelerationConnection = remember(pagerState, notes.size) {
+        object : NestedScrollConnection {
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (notes.isEmpty()) return Velocity.Zero
+
+                val velocityX = available.x
+                val absoluteVelocity = kotlin.math.abs(velocityX)
+                if (absoluteVelocity < SWIPE_MIN_FLING_VELOCITY_PX) {
+                    // Tiny/accidental fling: let pager handle normal settle behavior.
+                    return Velocity.Zero
+                }
+
+                // Velocity-band acceleration:
+                // 1 page for ordinary fling, then 2/3/4 pages as speed rises.
+                val pagesByVelocity = when {
+                    absoluteVelocity >= SWIPE_ACCEL_VELOCITY_4_PAGES -> 4
+                    absoluteVelocity >= SWIPE_ACCEL_VELOCITY_3_PAGES -> 3
+                    absoluteVelocity >= SWIPE_ACCEL_VELOCITY_2_PAGES -> 2
+                    else -> 1
+                }.coerceAtMost(SWIPE_MAX_PAGES_PER_FLING)
+
+                val direction = if (velocityX < 0f) 1 else -1
+                val targetPage = (pagerState.currentPage + (pagesByVelocity * direction))
+                    .coerceIn(0, notes.lastIndex)
+
+                if (targetPage != pagerState.currentPage) {
+                    Log.d(
+                        DEBUG_TAG,
+                        "Input signal: fling velocityX=$velocityX jump=$pagesByVelocity target=$targetPage from=${pagerState.currentPage}"
+                    )
+                    scope.launch { pagerState.animateScrollToPage(targetPage) }
+                }
+
+                // Consume fling to avoid duplicate/jittery default fling behavior.
+                return available
+            }
+        }
+    }
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
     val starFontSize = (minScreenDp * 0.075f).coerceIn(12f, 18f).sp
@@ -818,7 +882,9 @@ private fun NotesScreen(
         ) {
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .nestedScroll(swipeAccelerationConnection)
             ) { page ->
                 val note = notes[page]
                 val showBack = isNoteBackVisible(note.id)
