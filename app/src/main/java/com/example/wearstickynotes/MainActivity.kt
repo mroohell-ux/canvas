@@ -66,6 +66,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -158,8 +159,16 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         mutableStateListOf<StickyNote>().apply { addAll(initialNotes) }
     }
 
-    var appScreen by remember { mutableStateOf(AppScreen.CardFlows) }
-    var selectedFlowIndex by remember { mutableIntStateOf(0) }
+    val initialAppScreen = remember(prefs) {
+        if (prefs.getBoolean("last_screen_notes", false)) AppScreen.Notes else AppScreen.CardFlows
+    }
+    val initialSelectedFlowId = remember(prefs) {
+        if (prefs.contains("last_selected_flow_id")) prefs.getLong("last_selected_flow_id", Long.MIN_VALUE) else null
+    }
+
+    var appScreen by rememberSaveable { mutableStateOf(initialAppScreen) }
+    var selectedFlowIndex by rememberSaveable { mutableIntStateOf(0) }
+    var pendingRestoreFlowId by remember { mutableStateOf(initialSelectedFlowId) }
     val initialFlowLastOpened = remember(prefs, storageJson) {
         runCatching {
             prefs.getString("flow_last_opened_note_index", null)
@@ -234,6 +243,15 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         addAll(groupedFlows)
     }
 
+    LaunchedEffect(flowBuckets, pendingRestoreFlowId) {
+        val restoreFlowId = pendingRestoreFlowId ?: return@LaunchedEffect
+        val restoredIndex = flowBuckets.indexOfFirst { it.id == restoreFlowId }
+        if (restoredIndex >= 0) {
+            selectedFlowIndex = restoredIndex
+        }
+        pendingRestoreFlowId = null
+    }
+
     val safeFlowIndex = selectedFlowIndex.coerceIn(0, (flowBuckets.lastIndex).coerceAtLeast(0))
     val activeFlow = flowBuckets.getOrNull(safeFlowIndex)
     val flowNotes = activeFlow?.notes.orEmpty()
@@ -272,6 +290,20 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         prefs.edit()
             .putString("flow_last_opened_note_index", storageJson.encodeToString(asStorageMap))
             .apply()
+    }
+
+    LaunchedEffect(appScreen) {
+        prefs.edit()
+            .putBoolean("last_screen_notes", appScreen == AppScreen.Notes)
+            .apply()
+    }
+
+    LaunchedEffect(selectedFlowIndex, flowBuckets) {
+        flowBuckets.getOrNull(selectedFlowIndex)?.let { flow ->
+            prefs.edit()
+                .putLong("last_selected_flow_id", flow.id)
+                .apply()
+        }
     }
 
     fun onImported(imported: List<StickyNote>) {
