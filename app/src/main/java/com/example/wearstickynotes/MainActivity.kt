@@ -814,10 +814,12 @@ private fun NotesScreen(
         }
 
         LaunchedEffect(pagerState, notes.size) {
-            snapshotFlow { pagerState.currentPage }
+            // Use settledPage so parent-selected note updates only after user
+            // releases and pager settles, preventing mid-drag content/color jumps.
+            snapshotFlow { pagerState.settledPage }
                 .collect { page ->
                     if (notes.isNotEmpty()) {
-                        Log.d(DEBUG_TAG, "Notes pager page changed to $page (total=${notes.size})")
+                        Log.d(DEBUG_TAG, "Notes pager settled page changed to $page (total=${notes.size})")
                         onSelectedIndexChange(page.coerceIn(0, notes.lastIndex))
                     }
                 }
