@@ -118,10 +118,10 @@ import kotlin.math.abs
 import kotlin.coroutines.resume
 
 private const val DEBUG_TAG = "WearStickyNotes"
-private const val SWIPE_MIN_FLING_VELOCITY_PX = 500f
-private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2400f
-private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 3600f
-private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5200f
+private const val SWIPE_MIN_FLING_VELOCITY_PX = 650f
+private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2800f
+private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
+private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
 
 class MainActivity : ComponentActivity() {
