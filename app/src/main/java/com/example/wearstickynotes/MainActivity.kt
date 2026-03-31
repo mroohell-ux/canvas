@@ -129,10 +129,10 @@ private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
 private const val EDGE_RING_THICKNESS_RATIO = 0.22f
-private const val EDGE_GESTURE_DEGREES_PER_STEP = 24f
-private const val EDGE_GESTURE_ACTIVATION_SLOP_DEGREES = 5f
-private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM = 140f
-private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST = 300f
+private const val EDGE_GESTURE_DEGREES_PER_STEP = 14f
+private const val EDGE_GESTURE_ACTIVATION_SLOP_DEGREES = 2.5f
+private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM = 90f
+private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST = 180f
 private const val EDGE_GESTURE_MAX_ACCELERATED_SKIP = 4
 private const val EDGE_GESTURE_CLOCKWISE_TO_NEXT = true
 
@@ -640,6 +640,7 @@ private fun CardFlowsScreen(
                     var lastEventTime = down.uptimeMillis
                     val pointerId = down.id
                     var activated = false
+                    var gestureIndex = selectedIndex
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -707,11 +708,12 @@ private fun CardFlowsScreen(
                         }
 
                         val nextDirection = if (clockwise == EDGE_GESTURE_CLOCKWISE_TO_NEXT) 1 else -1
-                        val targetPage = (selectedIndex + (pagesToSkip * nextDirection))
+                        val targetPage = (gestureIndex + (pagesToSkip * nextDirection))
                             .coerceIn(0, flows.lastIndex)
-                        pagesToSkip = abs(targetPage - selectedIndex)
+                        pagesToSkip = abs(targetPage - gestureIndex)
                         if (pagesToSkip > 0) {
-                            Log.d(DEBUG_TAG, "Edge gesture page change $selectedIndex -> $targetPage")
+                            Log.d(DEBUG_TAG, "Edge gesture page change $gestureIndex -> $targetPage")
+                            gestureIndex = targetPage
                             onSelectedIndexChange(targetPage)
                         }
 
