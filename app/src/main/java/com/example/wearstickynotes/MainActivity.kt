@@ -12,7 +12,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
@@ -28,7 +27,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -82,6 +80,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.awaitEachGesture
+import androidx.compose.ui.input.pointer.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
@@ -115,6 +115,9 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.math.abs
+import kotlin.math.PI
+import kotlin.math.atan2
+import kotlin.math.sqrt
 import kotlin.coroutines.resume
 import kotlin.random.Random
 
@@ -124,6 +127,13 @@ private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2800f
 private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
+private const val EDGE_RING_THICKNESS_RATIO = 0.22f
+private const val EDGE_GESTURE_DEGREES_PER_STEP = 24f
+private const val EDGE_GESTURE_ACTIVATION_SLOP_DEGREES = 5f
+private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM = 140f
+private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST = 300f
+private const val EDGE_GESTURE_MAX_ACCELERATED_SKIP = 4
+private const val EDGE_GESTURE_CLOCKWISE_TO_NEXT = true
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -553,18 +563,39 @@ private fun CardFlowsScreen(
     onOpenSelectedFlow: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val dragOffset = remember { Animatable(0f) }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     val focusRequester = remember { FocusRequester() }
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
     val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
+    val pagerState = rememberPagerState(
+        initialPage = selectedIndex.coerceIn(0, flows.lastIndex.coerceAtLeast(0)),
+        pageCount = { flows.size }
+    )
 
     LaunchedEffect(flows.size) {
         if (flows.isNotEmpty()) {
             focusRequester.requestFocus()
         }
+    }
+
+    LaunchedEffect(selectedIndex, flows.size) {
+        if (flows.isNotEmpty()) {
+            val target = selectedIndex.coerceIn(0, flows.lastIndex)
+            if (target != pagerState.currentPage) {
+                pagerState.scrollToPage(target)
+            }
+        }
+    }
+
+    LaunchedEffect(pagerState, flows.size) {
+        snapshotFlow { pagerState.settledPage }
+            .collect { page ->
+                if (flows.isNotEmpty() && page != selectedIndex) {
+                    onSelectedIndexChange(page.coerceIn(0, flows.lastIndex))
+                }
+            }
     }
 
     Box(
@@ -577,35 +608,139 @@ private fun CardFlowsScreen(
                 var updated = rotaryAccumulator + it.verticalScrollPixels
                 when {
                     updated > 25f -> {
-                        onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0)))
+                        if (flows.isNotEmpty()) {
+                            val next = (pagerState.currentPage + 1).coerceAtMost(flows.lastIndex)
+                            if (next != pagerState.currentPage) {
+                                scope.launch { pagerState.animateScrollToPage(next) }
+                            }
+                        }
                         updated = 0f
                     }
 
                     updated < -25f -> {
-                        onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
+                        if (flows.isNotEmpty()) {
+                            val previous = (pagerState.currentPage - 1).coerceAtLeast(0)
+                            if (previous != pagerState.currentPage) {
+                                scope.launch { pagerState.animateScrollToPage(previous) }
+                            }
+                        }
                         updated = 0f
                     }
                 }
                 rotaryAccumulator = updated
                 true
             }
-            .pointerInput(flows.size, selectedIndex) {
-                detectHorizontalDragGestures(
-                    onHorizontalDrag = { _, amount ->
-                        scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
-                    },
-                    onDragEnd = {
-                        val dragSteps = (dragOffset.value / spacingPx).roundToInt()
-                        val targetIndex = (selectedIndex - dragSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
-                        if (targetIndex != selectedIndex) {
-                            onSelectedIndexChange(targetIndex)
-                        }
-                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
-                    },
-                    onDragCancel = {
-                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+            .pointerInput(flows.size) {
+                awaitEachGesture {
+                    if (flows.isEmpty()) return@awaitEachGesture
+
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val centerX = size.width / 2f
+                    val centerY = size.height / 2f
+                    val outerRadius = minOf(size.width, size.height) / 2f
+                    val innerRadius = (outerRadius * (1f - EDGE_RING_THICKNESS_RATIO)).coerceAtLeast(0f)
+                    val dxDown = down.position.x - centerX
+                    val dyDown = down.position.y - centerY
+                    val distanceDown = sqrt((dxDown * dxDown) + (dyDown * dyDown))
+                    val startedInEdgeRing = distanceDown in innerRadius..outerRadius
+
+                    if (!startedInEdgeRing) {
+                        Log.d(DEBUG_TAG, "Edge gesture ignored: start in center area")
+                        return@awaitEachGesture
                     }
-                )
+
+                    Log.d(
+                        DEBUG_TAG,
+                        "Edge gesture started: distance=$distanceDown inner=$innerRadius outer=$outerRadius"
+                    )
+
+                    var previousAngle = atan2(down.position.y - centerY, down.position.x - centerX)
+                    var accumulatedAngle = 0f
+                    var gestureDelta = 0f
+                    var lastEventTime = down.uptimeMillis
+                    var pointerId = down.id
+                    var activated = false
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+
+                        if (!change.pressed) break
+
+                        val dx = change.position.x - centerX
+                        val dy = change.position.y - centerY
+                        val distance = sqrt((dx * dx) + (dy * dy))
+                        if (distance !in innerRadius..outerRadius) {
+                            continue
+                        }
+
+                        val angle = atan2(change.position.y - centerY, change.position.x - centerX)
+                        var delta = angle - previousAngle
+                        if (delta > PI) delta -= (2f * PI.toFloat())
+                        if (delta < -PI) delta += (2f * PI.toFloat())
+                        previousAngle = angle
+
+                        gestureDelta += delta
+                        val gestureDeltaDegrees = Math.toDegrees(gestureDelta.toDouble()).toFloat()
+                        Log.d(DEBUG_TAG, "Edge gesture angle delta=${"%.2f".format(gestureDeltaDegrees)}°")
+
+                        if (!activated && abs(gestureDeltaDegrees) < EDGE_GESTURE_ACTIVATION_SLOP_DEGREES) {
+                            continue
+                        }
+
+                        if (!activated) {
+                            activated = true
+                            Log.d(DEBUG_TAG, "Edge gesture activated after slop=${EDGE_GESTURE_ACTIVATION_SLOP_DEGREES}°")
+                        }
+
+                        val elapsedMs = (change.uptimeMillis - lastEventTime).coerceAtLeast(1L)
+                        val instantaneousVelocityDegPerSec =
+                            abs(Math.toDegrees(delta.toDouble()).toFloat()) / (elapsedMs / 1000f)
+                        lastEventTime = change.uptimeMillis
+
+                        accumulatedAngle += delta
+                        val stepAngleRad = Math.toRadians(EDGE_GESTURE_DEGREES_PER_STEP.toDouble()).toFloat()
+                        val availableSteps = (abs(accumulatedAngle) / stepAngleRad).toInt()
+
+                        if (availableSteps <= 0) {
+                            change.consume()
+                            continue
+                        }
+
+                        val directionSign = if (accumulatedAngle > 0f) 1 else -1
+                        val clockwise = directionSign > 0
+                        Log.d(DEBUG_TAG, "Edge gesture direction=${if (clockwise) "clockwise" else "counterclockwise"}")
+
+                        val speedMultiplier = when {
+                            instantaneousVelocityDegPerSec >= EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST -> 3
+                            instantaneousVelocityDegPerSec >= EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM -> 2
+                            else -> 1
+                        }
+                        var pagesToSkip = (availableSteps * speedMultiplier)
+                            .coerceAtMost(EDGE_GESTURE_MAX_ACCELERATED_SKIP)
+
+                        if (pagesToSkip > 1) {
+                            Log.d(
+                                DEBUG_TAG,
+                                "Edge gesture acceleration velocity=${"%.1f".format(instantaneousVelocityDegPerSec)}°/s jump=$pagesToSkip"
+                            )
+                        }
+
+                        val nextDirection = if (clockwise == EDGE_GESTURE_CLOCKWISE_TO_NEXT) 1 else -1
+                        val targetPage = (pagerState.currentPage + (pagesToSkip * nextDirection))
+                            .coerceIn(0, flows.lastIndex)
+                        pagesToSkip = abs(targetPage - pagerState.currentPage)
+                        if (pagesToSkip > 0) {
+                            Log.d(DEBUG_TAG, "Edge gesture page change ${pagerState.currentPage} -> $targetPage")
+                            scope.launch { pagerState.animateScrollToPage(targetPage) }
+                        }
+
+                        val consumedAngle = stepAngleRad * availableSteps
+                        accumulatedAngle -= consumedAngle * directionSign
+                        gestureDelta = 0f
+                        change.consume()
+                    }
+                }
             },
         contentAlignment = Alignment.Center
     ) {
@@ -633,14 +768,15 @@ private fun CardFlowsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Flow ${selectedIndex + 1}/${flows.size}",
+                    text = "Flow ${pagerState.currentPage + 1}/${flows.size}",
                     fontSize = 11.sp,
                     color = Color.White.copy(alpha = 0.8f)
                 )
                 Box(modifier = Modifier.fillMaxWidth().height(railHeight), contentAlignment = Alignment.Center) {
                     flows.forEachIndexed { index, flow ->
+                        val selectedPage = pagerState.currentPage
                         val targetOffset by animateFloatAsState(
-                            targetValue = ((index - selectedIndex) * adaptiveSpacingPx) + dragOffset.value,
+                            targetValue = (index - selectedPage) * adaptiveSpacingPx,
                             animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
                             label = "flowOffset$index"
                         )
@@ -648,10 +784,11 @@ private fun CardFlowsScreen(
                         val emphasisAlpha = alphaFor(targetOffset)
                         FlowCircle(
                             flow = flow,
-                            selected = index == selectedIndex,
-                            circleSize = if (index == selectedIndex) selectedCircleSize else sideCircleSize,
+                            selected = index == selectedPage,
+                            circleSize = if (index == selectedPage) selectedCircleSize else sideCircleSize,
                             onClick = {
-                                if (index == selectedIndex) onOpenSelectedFlow() else onSelectedIndexChange(index)
+                                if (index == selectedPage) onOpenSelectedFlow()
+                                else scope.launch { pagerState.animateScrollToPage(index) }
                             },
                             emphasisScale = emphasisScale,
                             emphasisAlpha = emphasisAlpha,
