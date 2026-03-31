@@ -61,7 +61,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -118,16 +117,11 @@ import kotlin.math.abs
 import kotlin.coroutines.resume
 
 private const val DEBUG_TAG = "WearStickyNotes"
-private const val SWIPE_MIN_FLING_VELOCITY_PX = 140f
-private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 1500f
-private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 2500f
-private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 3600f
-private const val SWIPE_MAX_PAGES_PER_FLING = 4
-private const val FLOW_SWIPE_MIN_VELOCITY_PX_PER_MS = 0.35f
-private const val FLOW_SWIPE_VELOCITY_2_STEPS_PX_PER_MS = 0.9f
-private const val FLOW_SWIPE_VELOCITY_3_STEPS_PX_PER_MS = 1.5f
-private const val FLOW_SWIPE_VELOCITY_4_STEPS_PX_PER_MS = 2.1f
-private const val FLOW_SWIPE_MAX_STEPS = 4
+private const val SWIPE_MIN_FLING_VELOCITY_PX = 500f
+private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2400f
+private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 3600f
+private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5200f
+private const val SWIPE_MAX_PAGES_PER_FLING = 3
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -519,7 +513,6 @@ private fun CardFlowsScreen(
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
     val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
-    var dragStartedAtMs by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(flows.size) {
         if (flows.isNotEmpty()) {
@@ -552,41 +545,17 @@ private fun CardFlowsScreen(
             .pointerInput(flows.size, selectedIndex) {
                 detectHorizontalDragGestures(
                     onHorizontalDrag = { _, amount ->
-                        if (dragStartedAtMs == 0L) {
-                            dragStartedAtMs = System.currentTimeMillis()
-                        }
                         scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
                     },
                     onDragEnd = {
-                        val durationMs = (System.currentTimeMillis() - dragStartedAtMs).coerceAtLeast(1L)
-                        val velocityPxPerMs = kotlin.math.abs(dragOffset.value) / durationMs.toFloat()
-                        val hasMeaningfulDrag = kotlin.math.abs(dragOffset.value) >= 20f
-                        val hasMeaningfulVelocity = velocityPxPerMs >= FLOW_SWIPE_MIN_VELOCITY_PX_PER_MS
-
-                        val stepsFromVelocity = when {
-                            velocityPxPerMs >= FLOW_SWIPE_VELOCITY_4_STEPS_PX_PER_MS -> 4
-                            velocityPxPerMs >= FLOW_SWIPE_VELOCITY_3_STEPS_PX_PER_MS -> 3
-                            velocityPxPerMs >= FLOW_SWIPE_VELOCITY_2_STEPS_PX_PER_MS -> 2
-                            hasMeaningfulVelocity -> 1
-                            else -> 0
-                        }.coerceAtMost(FLOW_SWIPE_MAX_STEPS)
-
-                        val fallbackStepsFromDistance = if (hasMeaningfulDrag) {
-                            (kotlin.math.abs(dragOffset.value) / spacingPx).roundToInt().coerceAtLeast(1)
-                        } else {
-                            0
-                        }
-                        val pageSteps = maxOf(stepsFromVelocity, fallbackStepsFromDistance).coerceAtMost(FLOW_SWIPE_MAX_STEPS)
-                        val direction = if (dragOffset.value < 0f) 1 else -1
-                        val targetIndex = (selectedIndex + (direction * pageSteps)).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
+                        val dragSteps = (dragOffset.value / spacingPx).roundToInt()
+                        val targetIndex = (selectedIndex - dragSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
                         if (targetIndex != selectedIndex) {
                             onSelectedIndexChange(targetIndex)
                         }
-                        dragStartedAtMs = 0L
                         scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
                     },
                     onDragCancel = {
-                        dragStartedAtMs = 0L
                         scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
                     }
                 )
