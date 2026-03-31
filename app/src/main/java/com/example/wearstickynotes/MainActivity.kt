@@ -81,7 +81,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.consume
+import androidx.compose.ui.input.pointer.consumeAllChanges
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
@@ -634,116 +634,114 @@ private fun CardFlowsScreen(
             .pointerInput(flows.size) {
                 awaitEachGesture {
                     if (flows.isEmpty()) return@awaitEachGesture
-                    awaitPointerEventScope {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        val centerX = size.width / 2f
-                        val centerY = size.height / 2f
-                        val outerRadius = minOf(size.width, size.height) / 2f
-                        val innerRadius = (outerRadius * (1f - EDGE_RING_THICKNESS_RATIO)).coerceAtLeast(0f)
-                        val dxDown = down.position.x - centerX
-                        val dyDown = down.position.y - centerY
-                        val distanceDown = sqrt((dxDown * dxDown) + (dyDown * dyDown))
-                        val startedInEdgeRing = distanceDown in innerRadius..outerRadius
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val centerX = size.width / 2f
+                    val centerY = size.height / 2f
+                    val outerRadius = minOf(size.width, size.height) / 2f
+                    val innerRadius = (outerRadius * (1f - EDGE_RING_THICKNESS_RATIO)).coerceAtLeast(0f)
+                    val dxDown = down.position.x - centerX
+                    val dyDown = down.position.y - centerY
+                    val distanceDown = sqrt((dxDown * dxDown) + (dyDown * dyDown))
+                    val startedInEdgeRing = distanceDown in innerRadius..outerRadius
 
-                        if (!startedInEdgeRing) {
-                            Log.d(DEBUG_TAG, "Edge gesture ignored: start in center area")
-                            return@awaitPointerEventScope
+                    if (!startedInEdgeRing) {
+                        Log.d(DEBUG_TAG, "Edge gesture ignored: start in center area")
+                        return@awaitEachGesture
+                    }
+
+                    Log.d(
+                        DEBUG_TAG,
+                        "Edge gesture started: distance=$distanceDown inner=$innerRadius outer=$outerRadius"
+                    )
+
+                    fun angleFor(x: Float, y: Float): Float =
+                        atan2(y - centerY, x - centerX).toFloat()
+
+                    var previousAngle = angleFor(down.position.x, down.position.y)
+                    var accumulatedAngle = 0f
+                    var gestureDelta = 0f
+                    var lastEventTime = down.uptimeMillis
+                    val pointerId = down.id
+                    var activated = false
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { pointerChange -> pointerChange.id == pointerId } ?: break
+
+                        if (!change.pressed) break
+
+                        val dx = change.position.x - centerX
+                        val dy = change.position.y - centerY
+                        val distance = sqrt((dx * dx) + (dy * dy))
+                        if (distance !in innerRadius..outerRadius) {
+                            continue
                         }
 
-                        Log.d(
-                            DEBUG_TAG,
-                            "Edge gesture started: distance=$distanceDown inner=$innerRadius outer=$outerRadius"
-                        )
+                        val angle = angleFor(change.position.x, change.position.y)
+                        var delta = angle - previousAngle
+                        if (delta > PI.toFloat()) delta -= (2f * PI.toFloat())
+                        if (delta < -PI.toFloat()) delta += (2f * PI.toFloat())
+                        previousAngle = angle
 
-                        fun angleFor(x: Float, y: Float): Float =
-                            atan2(y - centerY, x - centerX).toFloat()
+                        gestureDelta += delta
+                        val gestureDeltaDegrees = Math.toDegrees(gestureDelta.toDouble()).toFloat()
+                        Log.d(DEBUG_TAG, "Edge gesture angle delta=${"%.2f".format(gestureDeltaDegrees)}°")
 
-                        var previousAngle = angleFor(down.position.x, down.position.y)
-                        var accumulatedAngle = 0f
-                        var gestureDelta = 0f
-                        var lastEventTime = down.uptimeMillis
-                        val pointerId = down.id
-                        var activated = false
-
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { pointerChange -> pointerChange.id == pointerId } ?: break
-
-                            if (!change.pressed) break
-
-                            val dx = change.position.x - centerX
-                            val dy = change.position.y - centerY
-                            val distance = sqrt((dx * dx) + (dy * dy))
-                            if (distance !in innerRadius..outerRadius) {
-                                continue
-                            }
-
-                            val angle = angleFor(change.position.x, change.position.y)
-                            var delta = angle - previousAngle
-                            if (delta > PI.toFloat()) delta -= (2f * PI.toFloat())
-                            if (delta < -PI.toFloat()) delta += (2f * PI.toFloat())
-                            previousAngle = angle
-
-                            gestureDelta += delta
-                            val gestureDeltaDegrees = Math.toDegrees(gestureDelta.toDouble()).toFloat()
-                            Log.d(DEBUG_TAG, "Edge gesture angle delta=${"%.2f".format(gestureDeltaDegrees)}°")
-
-                            if (!activated && abs(gestureDeltaDegrees) < EDGE_GESTURE_ACTIVATION_SLOP_DEGREES) {
-                                continue
-                            }
-
-                            if (!activated) {
-                                activated = true
-                                Log.d(DEBUG_TAG, "Edge gesture activated after slop=${EDGE_GESTURE_ACTIVATION_SLOP_DEGREES}°")
-                            }
-
-                            val elapsedMs = (change.uptimeMillis - lastEventTime).coerceAtLeast(1L)
-                            val instantaneousVelocityDegPerSec =
-                                abs(Math.toDegrees(delta.toDouble()).toFloat()) / (elapsedMs / 1000f)
-                            lastEventTime = change.uptimeMillis
-
-                            accumulatedAngle += delta
-                            val stepAngleRad = Math.toRadians(EDGE_GESTURE_DEGREES_PER_STEP.toDouble()).toFloat()
-                            val availableSteps = (abs(accumulatedAngle) / stepAngleRad).toInt()
-
-                            if (availableSteps <= 0) {
-                                change.consume()
-                                continue
-                            }
-
-                            val directionSign = if (accumulatedAngle > 0f) 1 else -1
-                            val clockwise = directionSign > 0
-                            Log.d(DEBUG_TAG, "Edge gesture direction=${if (clockwise) "clockwise" else "counterclockwise"}")
-
-                            val speedMultiplier = when {
-                                instantaneousVelocityDegPerSec >= EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST -> 3
-                                instantaneousVelocityDegPerSec >= EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM -> 2
-                                else -> 1
-                            }
-                            var pagesToSkip = (availableSteps * speedMultiplier)
-                                .coerceAtMost(EDGE_GESTURE_MAX_ACCELERATED_SKIP)
-
-                            if (pagesToSkip > 1) {
-                                Log.d(
-                                    DEBUG_TAG,
-                                    "Edge gesture acceleration velocity=${"%.1f".format(instantaneousVelocityDegPerSec)}°/s jump=$pagesToSkip"
-                                )
-                            }
-
-                            val nextDirection = if (clockwise == EDGE_GESTURE_CLOCKWISE_TO_NEXT) 1 else -1
-                            val targetPage = (pagerState.currentPage + (pagesToSkip * nextDirection))
-                                .coerceIn(0, flows.lastIndex)
-                            pagesToSkip = abs(targetPage - pagerState.currentPage)
-                            if (pagesToSkip > 0) {
-                                Log.d(DEBUG_TAG, "Edge gesture page change ${pagerState.currentPage} -> $targetPage")
-                                scope.launch { pagerState.animateScrollToPage(targetPage) }
-                            }
-
-                            val consumedAngle = stepAngleRad * availableSteps
-                            accumulatedAngle -= consumedAngle * directionSign
-                            gestureDelta = 0f
-                            change.consume()
+                        if (!activated && abs(gestureDeltaDegrees) < EDGE_GESTURE_ACTIVATION_SLOP_DEGREES) {
+                            continue
                         }
+
+                        if (!activated) {
+                            activated = true
+                            Log.d(DEBUG_TAG, "Edge gesture activated after slop=${EDGE_GESTURE_ACTIVATION_SLOP_DEGREES}°")
+                        }
+
+                        val elapsedMs = (change.uptimeMillis - lastEventTime).coerceAtLeast(1L)
+                        val instantaneousVelocityDegPerSec =
+                            abs(Math.toDegrees(delta.toDouble()).toFloat()) / (elapsedMs / 1000f)
+                        lastEventTime = change.uptimeMillis
+
+                        accumulatedAngle += delta
+                        val stepAngleRad = Math.toRadians(EDGE_GESTURE_DEGREES_PER_STEP.toDouble()).toFloat()
+                        val availableSteps = (abs(accumulatedAngle) / stepAngleRad).toInt()
+
+                        if (availableSteps <= 0) {
+                            change.consumeAllChanges()
+                            continue
+                        }
+
+                        val directionSign = if (accumulatedAngle > 0f) 1 else -1
+                        val clockwise = directionSign > 0
+                        Log.d(DEBUG_TAG, "Edge gesture direction=${if (clockwise) "clockwise" else "counterclockwise"}")
+
+                        val speedMultiplier = when {
+                            instantaneousVelocityDegPerSec >= EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST -> 3
+                            instantaneousVelocityDegPerSec >= EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM -> 2
+                            else -> 1
+                        }
+                        var pagesToSkip = (availableSteps * speedMultiplier)
+                            .coerceAtMost(EDGE_GESTURE_MAX_ACCELERATED_SKIP)
+
+                        if (pagesToSkip > 1) {
+                            Log.d(
+                                DEBUG_TAG,
+                                "Edge gesture acceleration velocity=${"%.1f".format(instantaneousVelocityDegPerSec)}°/s jump=$pagesToSkip"
+                            )
+                        }
+
+                        val nextDirection = if (clockwise == EDGE_GESTURE_CLOCKWISE_TO_NEXT) 1 else -1
+                        val targetPage = (pagerState.currentPage + (pagesToSkip * nextDirection))
+                            .coerceIn(0, flows.lastIndex)
+                        pagesToSkip = abs(targetPage - pagerState.currentPage)
+                        if (pagesToSkip > 0) {
+                            Log.d(DEBUG_TAG, "Edge gesture page change ${pagerState.currentPage} -> $targetPage")
+                            scope.launch { pagerState.animateScrollToPage(targetPage) }
+                        }
+
+                        val consumedAngle = stepAngleRad * availableSteps
+                        accumulatedAngle -= consumedAngle * directionSign
+                        gestureDelta = 0f
+                        change.consumeAllChanges()
                     }
                 }
             },
