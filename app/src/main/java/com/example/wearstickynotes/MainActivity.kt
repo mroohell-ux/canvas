@@ -123,6 +123,11 @@ private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 1500f
 private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 2500f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 3600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 4
+private const val FLOW_SWIPE_MIN_VELOCITY_PX_PER_MS = 0.35f
+private const val FLOW_SWIPE_VELOCITY_2_STEPS_PX_PER_MS = 0.9f
+private const val FLOW_SWIPE_VELOCITY_3_STEPS_PX_PER_MS = 1.5f
+private const val FLOW_SWIPE_VELOCITY_4_STEPS_PX_PER_MS = 2.1f
+private const val FLOW_SWIPE_MAX_STEPS = 4
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -553,25 +558,27 @@ private fun CardFlowsScreen(
                         scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
                     },
                     onDragEnd = {
-                        val dragSteps = (dragOffset.value / spacingPx).roundToInt()
                         val durationMs = (System.currentTimeMillis() - dragStartedAtMs).coerceAtLeast(1L)
                         val velocityPxPerMs = kotlin.math.abs(dragOffset.value) / durationMs.toFloat()
-                        val fastSwipeBoost = when {
-                            velocityPxPerMs > 2.8f -> 2
-                            velocityPxPerMs > 1.8f -> 1
+                        val hasMeaningfulDrag = kotlin.math.abs(dragOffset.value) >= 20f
+                        val hasMeaningfulVelocity = velocityPxPerMs >= FLOW_SWIPE_MIN_VELOCITY_PX_PER_MS
+
+                        val stepsFromVelocity = when {
+                            velocityPxPerMs >= FLOW_SWIPE_VELOCITY_4_STEPS_PX_PER_MS -> 4
+                            velocityPxPerMs >= FLOW_SWIPE_VELOCITY_3_STEPS_PX_PER_MS -> 3
+                            velocityPxPerMs >= FLOW_SWIPE_VELOCITY_2_STEPS_PX_PER_MS -> 2
+                            hasMeaningfulVelocity -> 1
                             else -> 0
-                        }
-                        val boostedSteps = if (dragSteps == 0 && fastSwipeBoost > 0) {
-                            if (dragOffset.value < 0f) 1 else -1
-                        } else if (dragSteps > 0) {
-                            dragSteps + fastSwipeBoost
-                        } else if (dragSteps < 0) {
-                            dragSteps - fastSwipeBoost
+                        }.coerceAtMost(FLOW_SWIPE_MAX_STEPS)
+
+                        val fallbackStepsFromDistance = if (hasMeaningfulDrag) {
+                            (kotlin.math.abs(dragOffset.value) / spacingPx).roundToInt().coerceAtLeast(1)
                         } else {
                             0
                         }
-
-                        val targetIndex = (selectedIndex - boostedSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
+                        val pageSteps = maxOf(stepsFromVelocity, fallbackStepsFromDistance).coerceAtMost(FLOW_SWIPE_MAX_STEPS)
+                        val direction = if (dragOffset.value < 0f) 1 else -1
+                        val targetIndex = (selectedIndex + (direction * pageSteps)).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
                         if (targetIndex != selectedIndex) {
                             onSelectedIndexChange(targetIndex)
                         }
