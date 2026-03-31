@@ -29,9 +29,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -563,40 +563,17 @@ private fun CardFlowsScreen(
     onSelectedIndexChange: (Int) -> Unit,
     onOpenSelectedFlow: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     val focusRequester = remember { FocusRequester() }
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
     val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
-    val pagerState = rememberPagerState(
-        initialPage = selectedIndex.coerceIn(0, flows.lastIndex.coerceAtLeast(0)),
-        pageCount = { flows.size }
-    )
 
     LaunchedEffect(flows.size) {
         if (flows.isNotEmpty()) {
             focusRequester.requestFocus()
         }
-    }
-
-    LaunchedEffect(selectedIndex, flows.size) {
-        if (flows.isNotEmpty()) {
-            val target = selectedIndex.coerceIn(0, flows.lastIndex)
-            if (target != pagerState.currentPage) {
-                pagerState.scrollToPage(target)
-            }
-        }
-    }
-
-    LaunchedEffect(pagerState, flows.size) {
-        snapshotFlow { pagerState.settledPage }
-            .collect { page ->
-                if (flows.isNotEmpty() && page != selectedIndex) {
-                    onSelectedIndexChange(page.coerceIn(0, flows.lastIndex))
-                }
-            }
     }
 
     Box(
@@ -610,9 +587,9 @@ private fun CardFlowsScreen(
                 when {
                     updated > 25f -> {
                         if (flows.isNotEmpty()) {
-                            val next = (pagerState.currentPage + 1).coerceAtMost(flows.lastIndex)
-                            if (next != pagerState.currentPage) {
-                                scope.launch { pagerState.animateScrollToPage(next) }
+                            val next = (selectedIndex + 1).coerceAtMost(flows.lastIndex)
+                            if (next != selectedIndex) {
+                                onSelectedIndexChange(next)
                             }
                         }
                         updated = 0f
@@ -620,9 +597,9 @@ private fun CardFlowsScreen(
 
                     updated < -25f -> {
                         if (flows.isNotEmpty()) {
-                            val previous = (pagerState.currentPage - 1).coerceAtLeast(0)
-                            if (previous != pagerState.currentPage) {
-                                scope.launch { pagerState.animateScrollToPage(previous) }
+                            val previous = (selectedIndex - 1).coerceAtLeast(0)
+                            if (previous != selectedIndex) {
+                                onSelectedIndexChange(previous)
                             }
                         }
                         updated = 0f
@@ -730,12 +707,12 @@ private fun CardFlowsScreen(
                         }
 
                         val nextDirection = if (clockwise == EDGE_GESTURE_CLOCKWISE_TO_NEXT) 1 else -1
-                        val targetPage = (pagerState.currentPage + (pagesToSkip * nextDirection))
+                        val targetPage = (selectedIndex + (pagesToSkip * nextDirection))
                             .coerceIn(0, flows.lastIndex)
-                        pagesToSkip = abs(targetPage - pagerState.currentPage)
+                        pagesToSkip = abs(targetPage - selectedIndex)
                         if (pagesToSkip > 0) {
-                            Log.d(DEBUG_TAG, "Edge gesture page change ${pagerState.currentPage} -> $targetPage")
-                            scope.launch { pagerState.animateScrollToPage(targetPage) }
+                            Log.d(DEBUG_TAG, "Edge gesture page change $selectedIndex -> $targetPage")
+                            onSelectedIndexChange(targetPage)
                         }
 
                         val consumedAngle = stepAngleRad * availableSteps
@@ -771,15 +748,14 @@ private fun CardFlowsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Flow ${pagerState.currentPage + 1}/${flows.size}",
+                    text = "Flow ${selectedIndex + 1}/${flows.size}",
                     fontSize = 11.sp,
                     color = Color.White.copy(alpha = 0.8f)
                 )
                 Box(modifier = Modifier.fillMaxWidth().height(railHeight), contentAlignment = Alignment.Center) {
                     flows.forEachIndexed { index, flow ->
-                        val selectedPage = pagerState.currentPage
                         val targetOffset by animateFloatAsState(
-                            targetValue = (index - selectedPage) * adaptiveSpacingPx,
+                            targetValue = (index - selectedIndex) * adaptiveSpacingPx,
                             animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
                             label = "flowOffset$index"
                         )
@@ -787,11 +763,10 @@ private fun CardFlowsScreen(
                         val emphasisAlpha = alphaFor(targetOffset)
                         FlowCircle(
                             flow = flow,
-                            selected = index == selectedPage,
-                            circleSize = if (index == selectedPage) selectedCircleSize else sideCircleSize,
+                            selected = index == selectedIndex,
+                            circleSize = if (index == selectedIndex) selectedCircleSize else sideCircleSize,
                             onClick = {
-                                if (index == selectedPage) onOpenSelectedFlow()
-                                else scope.launch { pagerState.animateScrollToPage(index) }
+                                if (index == selectedIndex) onOpenSelectedFlow() else onSelectedIndexChange(index)
                             },
                             emphasisScale = emphasisScale,
                             emphasisAlpha = emphasisAlpha,
