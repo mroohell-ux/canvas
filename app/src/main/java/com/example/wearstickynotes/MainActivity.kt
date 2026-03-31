@@ -738,29 +738,32 @@ private fun NotesScreen(
                     return Velocity.Zero
                 }
 
-                // Velocity-band acceleration:
-                // 1 page for ordinary fling, then 2/3/4 pages as speed rises.
-                val pagesByVelocity = when {
-                    absoluteVelocity >= SWIPE_ACCEL_VELOCITY_4_PAGES -> 4
-                    absoluteVelocity >= SWIPE_ACCEL_VELOCITY_3_PAGES -> 3
-                    absoluteVelocity >= SWIPE_ACCEL_VELOCITY_2_PAGES -> 2
-                    else -> 1
-                }.coerceAtMost(SWIPE_MAX_PAGES_PER_FLING)
-
-                val direction = if (velocityX < 0f) 1 else -1
-                val targetPage = (pagerState.currentPage + (pagesByVelocity * direction))
-                    .coerceIn(0, notes.lastIndex)
-
-                if (targetPage != pagerState.currentPage) {
-                    Log.d(
-                        DEBUG_TAG,
-                        "Input signal: fling velocityX=$velocityX jump=$pagesByVelocity target=$targetPage from=${pagerState.currentPage}"
-                    )
-                    scope.launch { pagerState.animateScrollToPage(targetPage) }
+                // Preserve the page user already dragged toward and only add
+                // EXTRA pages for stronger flicks, so release result matches
+                // what user saw right before lifting finger.
+                val baseTargetPage = pagerState.targetPage.coerceIn(0, notes.lastIndex)
+                val extraPagesByVelocity = when {
+                    absoluteVelocity >= SWIPE_ACCEL_VELOCITY_4_PAGES -> 3
+                    absoluteVelocity >= SWIPE_ACCEL_VELOCITY_3_PAGES -> 2
+                    absoluteVelocity >= SWIPE_ACCEL_VELOCITY_2_PAGES -> 1
+                    else -> 0
                 }
 
-                // Consume fling to avoid duplicate/jittery default fling behavior.
-                return available
+                val direction = if (velocityX < 0f) 1 else -1
+                val targetPage = (baseTargetPage + (extraPagesByVelocity * direction))
+                    .coerceIn(0, notes.lastIndex)
+                val pagesSkipped = kotlin.math.abs(targetPage - pagerState.currentPage)
+
+                if (targetPage != baseTargetPage && pagesSkipped <= SWIPE_MAX_PAGES_PER_FLING) {
+                    Log.d(
+                        DEBUG_TAG,
+                        "Input signal: fling velocityX=$velocityX base=$baseTargetPage extra=$extraPagesByVelocity target=$targetPage from=${pagerState.currentPage}"
+                    )
+                    scope.launch { pagerState.animateScrollToPage(targetPage) }
+                    return available
+                }
+
+                return Velocity.Zero
             }
         }
     }
