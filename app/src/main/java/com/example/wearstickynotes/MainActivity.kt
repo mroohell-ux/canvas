@@ -700,7 +700,7 @@ private fun FlowCircle(
                 .padding(if (selected) 10.dp else 8.dp)
         ) {
             Text(
-                text = flow.name,
+                text = "${flow.name} (${flow.notes.size})",
                 textAlign = TextAlign.Center,
                 fontSize = if (selected) 11.sp else 9.sp,
                 lineHeight = if (selected) 13.sp else 11.sp,
