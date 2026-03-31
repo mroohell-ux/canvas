@@ -116,6 +116,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.math.abs
 import kotlin.coroutines.resume
+import kotlin.random.Random
 
 private const val DEBUG_TAG = "WearStickyNotes"
 private const val SWIPE_MIN_FLING_VELOCITY_PX = 650f
@@ -204,6 +205,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     }
 
     var shuffleMode by remember { mutableStateOf(initialShuffleMode) }
+    var shuffleSeed by remember { mutableIntStateOf(0) }
     var textScale by remember { mutableStateOf(initialTextScale) }
     val noteSideState = remember { mutableStateMapOf<String, Boolean>() }
     val collectionNoteState = remember {
@@ -212,12 +214,17 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         }
     }
 
+    fun stableShuffledNotes(list: List<StickyNote>, seed: Long): List<StickyNote> {
+        val sorted = list.sortedBy { it.id }
+        return if (shuffleMode) sorted.shuffled(Random(seed)) else sorted
+    }
+
     val groupedFlows = notes.groupBy { "${it.flowId}|${it.flowName}" }
         .map { (_, flowNotes) ->
             CardFlow(
                 id = flowNotes.first().flowId,
                 name = flowNotes.first().flowName,
-                notes = if (shuffleMode) flowNotes.shuffled() else flowNotes.sortedBy { it.id }
+                notes = stableShuffledNotes(flowNotes, shuffleSeed.toLong() + flowNotes.first().flowId)
             )
         }
         .sortedBy { it.name }
@@ -225,11 +232,14 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     val allNotesFlow = CardFlow(
         id = Long.MIN_VALUE,
         name = "All Notes",
-        notes = if (shuffleMode) notes.shuffled() else notes.sortedBy { it.id }
+        notes = stableShuffledNotes(notes, shuffleSeed.toLong() + Long.MIN_VALUE)
     )
     val collectionNotes = notes
         .filter { collectionNoteState[it.id] == true }
-        .let { if (shuffleMode) it.shuffled() else it.sortedWith(compareBy<StickyNote> { it.cardTitle }.thenBy { it.id }) }
+        .let { filtered ->
+            val sorted = filtered.sortedWith(compareBy<StickyNote> { it.cardTitle }.thenBy { it.id })
+            if (shuffleMode) sorted.shuffled(Random(shuffleSeed.toLong() + (Long.MIN_VALUE + 1))) else sorted
+        }
 
     val collectionsFlow = CardFlow(
         id = Long.MIN_VALUE + 1,
@@ -434,7 +444,12 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                         },
                         onImportFromPhone = { startDiscovery() },
                         shuffleMode = shuffleMode,
-                        onToggleShuffle = { shuffleMode = !shuffleMode },
+                        onToggleShuffle = {
+                            if (!shuffleMode) {
+                                shuffleSeed = Random.nextInt()
+                            }
+                            shuffleMode = !shuffleMode
+                        },
                         textScale = textScale,
                         onTextScaleChange = { textScale = it }
                     )
