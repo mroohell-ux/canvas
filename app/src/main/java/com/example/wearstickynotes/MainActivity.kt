@@ -131,9 +131,9 @@ private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
 private const val EDGE_RING_THICKNESS_RATIO = 0.32f
-private const val EDGE_GESTURE_DEGREES_PER_STEP_INNER = 8f
-private const val EDGE_GESTURE_DEGREES_PER_STEP_OUTER = 4f
-private const val EDGE_GESTURE_ACTIVATION_SLOP_DEGREES = 1.5f
+private const val EDGE_GESTURE_DEGREES_PER_STEP_INNER = 5f
+private const val EDGE_GESTURE_DEGREES_PER_STEP_OUTER = 2.2f
+private const val EDGE_GESTURE_ACTIVATION_SLOP_DEGREES = 0.8f
 private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM = 90f
 private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST = 180f
 private const val EDGE_GESTURE_MAX_ACCELERATED_SKIP = 4
@@ -697,7 +697,8 @@ private fun CardFlowsScreen(
                         lastEventTime = change.uptimeMillis
 
                         accumulatedAngle += delta
-                        val availableSteps = (abs(accumulatedAngle) / stepAngleRad).toInt()
+                        val rawSteps = (abs(accumulatedAngle) / stepAngleRad).toInt()
+                        val availableSteps = if (rawSteps <= 0 && abs(accumulatedAngle) >= (stepAngleRad * 0.6f)) 1 else rawSteps
 
                         if (availableSteps <= 0) {
                             change.consumeAllChanges()
