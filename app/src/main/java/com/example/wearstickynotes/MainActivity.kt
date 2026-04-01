@@ -130,7 +130,7 @@ private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2800f
 private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
-private const val EDGE_RING_THICKNESS_RATIO = 0.22f
+private const val EDGE_RING_THICKNESS_RATIO = 0.32f
 private const val EDGE_GESTURE_DEGREES_PER_STEP = 14f
 private const val EDGE_GESTURE_ACTIVATION_SLOP_DEGREES = 2.5f
 private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM = 90f
@@ -588,7 +588,6 @@ private fun CardFlowsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(10.dp)
             .focusRequester(focusRequester)
             .focusable()
             .onRotaryScrollEvent {
@@ -735,7 +734,8 @@ private fun CardFlowsScreen(
                         change.consumeAllChanges()
                     }
                 }
-            },
+            }
+            .padding(10.dp),
         contentAlignment = Alignment.Center
     ) {
         if (flows.isEmpty()) {
