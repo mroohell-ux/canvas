@@ -12,7 +12,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
@@ -28,10 +27,11 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -81,17 +81,20 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.consumeAllChanges
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
@@ -115,6 +118,9 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.math.abs
+import kotlin.math.PI
+import kotlin.math.atan2
+import kotlin.math.sqrt
 import kotlin.coroutines.resume
 import kotlin.random.Random
 
@@ -124,6 +130,18 @@ private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2800f
 private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
+private const val EDGE_RING_THICKNESS_RATIO = 0.40f
+private const val EDGE_GESTURE_DEGREES_PER_STEP_INNER = 5f
+private const val EDGE_GESTURE_DEGREES_PER_STEP_OUTER = 2.2f
+private const val EDGE_GESTURE_ACTIVATION_SLOP_DEGREES = 0.8f
+private const val EDGE_GESTURE_MIN_DELTA_DEGREES = 0.2f
+private const val EDGE_GESTURE_CONTINUE_INNER_RATIO = 0.55f
+private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM = 220f
+private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST = 360f
+private const val EDGE_GESTURE_MAX_ACCELERATED_SKIP = 2
+private const val EDGE_GESTURE_CLOCKWISE_TO_NEXT = true
+private const val EDGE_GESTURE_OUTER_TOLERANCE_PX = 56f
+private const val EDGE_GESTURE_EDGE_INSET_PX = 0f
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -552,14 +570,19 @@ private fun CardFlowsScreen(
     onSelectedIndexChange: (Int) -> Unit,
     onOpenSelectedFlow: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    val dragOffset = remember { Animatable(0f) }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     val focusRequester = remember { FocusRequester() }
     val density = LocalDensity.current
+    val hapticFeedback = LocalHapticFeedback.current
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
     val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
+
+    fun vibrateForFlowMove(from: Int, to: Int) {
+        repeat(abs(to - from)) {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+    }
 
     LaunchedEffect(flows.size) {
         if (flows.isNotEmpty()) {
@@ -570,43 +593,195 @@ private fun CardFlowsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(10.dp)
             .focusRequester(focusRequester)
             .focusable()
             .onRotaryScrollEvent {
                 var updated = rotaryAccumulator + it.verticalScrollPixels
                 when {
                     updated > 25f -> {
-                        onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0)))
+                        if (flows.isNotEmpty()) {
+                            val next = (selectedIndex + 1).coerceAtMost(flows.lastIndex)
+                            if (next != selectedIndex) {
+                                vibrateForFlowMove(selectedIndex, next)
+                                onSelectedIndexChange(next)
+                            }
+                        }
                         updated = 0f
                     }
 
                     updated < -25f -> {
-                        onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
+                        if (flows.isNotEmpty()) {
+                            val previous = (selectedIndex - 1).coerceAtLeast(0)
+                            if (previous != selectedIndex) {
+                                vibrateForFlowMove(selectedIndex, previous)
+                                onSelectedIndexChange(previous)
+                            }
+                        }
                         updated = 0f
                     }
                 }
                 rotaryAccumulator = updated
                 true
             }
-            .pointerInput(flows.size, selectedIndex) {
-                detectHorizontalDragGestures(
-                    onHorizontalDrag = { _, amount ->
-                        scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
-                    },
-                    onDragEnd = {
-                        val dragSteps = (dragOffset.value / spacingPx).roundToInt()
-                        val targetIndex = (selectedIndex - dragSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
-                        if (targetIndex != selectedIndex) {
-                            onSelectedIndexChange(targetIndex)
-                        }
-                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
-                    },
-                    onDragCancel = {
-                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+            .pointerInput(flows.size) {
+                awaitEachGesture {
+                    if (flows.isEmpty()) return@awaitEachGesture
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val centerX = size.width / 2f
+                    val centerY = size.height / 2f
+                    val physicalOuterRadius = minOf(size.width, size.height) / 2f
+                    val outerRadius = (physicalOuterRadius - EDGE_GESTURE_EDGE_INSET_PX).coerceAtLeast(1f)
+                    val innerRadius = (outerRadius * (1f - EDGE_RING_THICKNESS_RATIO)).coerceAtLeast(0f)
+                    val dxDown = down.position.x - centerX
+                    val dyDown = down.position.y - centerY
+                    val distanceDown = sqrt((dxDown * dxDown) + (dyDown * dyDown))
+                    val startedInEdgeRing =
+                        distanceDown >= innerRadius && distanceDown <= (outerRadius + EDGE_GESTURE_OUTER_TOLERANCE_PX)
+                    val ringSpan = (outerRadius - innerRadius).coerceAtLeast(1f)
+                    val radiusProgress = ((distanceDown - innerRadius) / ringSpan).coerceIn(0f, 1f)
+                    val dynamicStepDegrees = EDGE_GESTURE_DEGREES_PER_STEP_INNER +
+                        ((EDGE_GESTURE_DEGREES_PER_STEP_OUTER - EDGE_GESTURE_DEGREES_PER_STEP_INNER) * radiusProgress)
+                    val stepAngleRad = Math.toRadians(dynamicStepDegrees.toDouble()).toFloat()
+
+                    Log.d(
+                        DEBUG_TAG,
+                        "Edge touch down x=${down.position.x}, y=${down.position.y}, size=(${size.width}x${size.height}), distance=$distanceDown, inner=$innerRadius, outer=$outerRadius, outerTol=${outerRadius + EDGE_GESTURE_OUTER_TOLERANCE_PX}, inRing=$startedInEdgeRing"
+                    )
+
+                    if (!startedInEdgeRing) {
+                        val reason = if (distanceDown < innerRadius) "center-area" else "outside-outer-ring"
+                        Log.d(DEBUG_TAG, "Edge gesture ignored: $reason startDistance=$distanceDown")
+                        return@awaitEachGesture
                     }
-                )
-            },
+
+                    Log.d(
+                        DEBUG_TAG,
+                        "Edge gesture started: distance=$distanceDown inner=$innerRadius outer=$outerRadius physicalOuter=$physicalOuterRadius stepDeg=$dynamicStepDegrees"
+                    )
+
+                    fun angleFor(x: Float, y: Float): Float =
+                        atan2(y - centerY, x - centerX).toFloat()
+
+                    var previousAngle = angleFor(down.position.x, down.position.y)
+                    var accumulatedAngle = 0f
+                    var gestureDelta = 0f
+                    var lastEventTime = down.uptimeMillis
+                    var pointerId = down.id
+                    var activated = false
+                    var gestureIndex = selectedIndex
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        var change = event.changes.firstOrNull { pointerChange -> pointerChange.id == pointerId }
+                        if (change == null) {
+                            val replacement = event.changes.firstOrNull { it.pressed } ?: break
+                            pointerId = replacement.id
+                            previousAngle = angleFor(replacement.position.x, replacement.position.y)
+                            lastEventTime = replacement.uptimeMillis
+                            Log.d(DEBUG_TAG, "Edge gesture pointer switched to id=$pointerId")
+                            continue
+                        }
+
+                        if (!change.pressed) {
+                            val replacement = event.changes.firstOrNull { it.pressed }
+                            if (replacement != null) {
+                                pointerId = replacement.id
+                                previousAngle = angleFor(replacement.position.x, replacement.position.y)
+                                lastEventTime = replacement.uptimeMillis
+                                Log.d(DEBUG_TAG, "Edge gesture pointer lifted; switched to id=$pointerId")
+                                continue
+                            }
+                            break
+                        }
+
+                        val dx = change.position.x - centerX
+                        val dy = change.position.y - centerY
+                        val distance = sqrt((dx * dx) + (dy * dy))
+                        val continueInnerRadius = innerRadius * EDGE_GESTURE_CONTINUE_INNER_RATIO
+                        if (distance < continueInnerRadius || distance > outerRadius + EDGE_GESTURE_OUTER_TOLERANCE_PX) {
+                            continue
+                        }
+
+                        val angle = angleFor(change.position.x, change.position.y)
+                        var delta = angle - previousAngle
+                        if (delta > PI.toFloat()) delta -= (2f * PI.toFloat())
+                        if (delta < -PI.toFloat()) delta += (2f * PI.toFloat())
+                        previousAngle = angle
+                        val deltaDegrees = Math.toDegrees(delta.toDouble()).toFloat()
+                        if (abs(deltaDegrees) < EDGE_GESTURE_MIN_DELTA_DEGREES) {
+                            continue
+                        }
+
+                        gestureDelta += delta
+                        val gestureDeltaDegrees = Math.toDegrees(gestureDelta.toDouble()).toFloat()
+                        Log.d(DEBUG_TAG, "Edge gesture angle delta=${"%.2f".format(gestureDeltaDegrees)}°")
+
+                        if (!activated && abs(gestureDeltaDegrees) < EDGE_GESTURE_ACTIVATION_SLOP_DEGREES) {
+                            continue
+                        }
+
+                        if (!activated) {
+                            activated = true
+                            // Keep motion gathered before slop activation so light swipes
+                            // can still trigger the first step naturally.
+                            accumulatedAngle = gestureDelta
+                            Log.d(DEBUG_TAG, "Edge gesture activated after slop=${EDGE_GESTURE_ACTIVATION_SLOP_DEGREES}°")
+                        }
+
+                        val elapsedMs = (change.uptimeMillis - lastEventTime).coerceAtLeast(1L)
+                        val instantaneousVelocityDegPerSec =
+                            abs(deltaDegrees) / (elapsedMs / 1000f)
+                        lastEventTime = change.uptimeMillis
+
+                        accumulatedAngle += delta
+                        val rawSteps = (abs(accumulatedAngle) / stepAngleRad).toInt()
+                        val availableSteps = if (rawSteps <= 0 && abs(accumulatedAngle) >= (stepAngleRad * 0.6f)) 1 else rawSteps
+
+                        if (availableSteps <= 0) {
+                            change.consumeAllChanges()
+                            continue
+                        }
+
+                        val directionSign = if (accumulatedAngle > 0f) 1 else -1
+                        val clockwise = directionSign > 0
+                        Log.d(DEBUG_TAG, "Edge gesture direction=${if (clockwise) "clockwise" else "counterclockwise"}")
+
+                        val allowAcceleration = abs(gestureDeltaDegrees) >= (dynamicStepDegrees * 1.35f)
+                        val speedMultiplier = when {
+                            !allowAcceleration -> 1
+                            instantaneousVelocityDegPerSec >= EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST -> 2
+                            instantaneousVelocityDegPerSec >= EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM && availableSteps >= 2 -> 2
+                            else -> 1
+                        }
+                        var pagesToSkip = (availableSteps * speedMultiplier)
+                            .coerceAtMost(EDGE_GESTURE_MAX_ACCELERATED_SKIP)
+
+                        if (pagesToSkip > 1) {
+                            Log.d(
+                                DEBUG_TAG,
+                                "Edge gesture acceleration velocity=${"%.1f".format(instantaneousVelocityDegPerSec)}°/s allow=$allowAcceleration jump=$pagesToSkip"
+                            )
+                        }
+
+                        val nextDirection = if (clockwise == EDGE_GESTURE_CLOCKWISE_TO_NEXT) 1 else -1
+                        val targetPage = (gestureIndex + (pagesToSkip * nextDirection))
+                            .coerceIn(0, flows.lastIndex)
+                        pagesToSkip = abs(targetPage - gestureIndex)
+                        if (pagesToSkip > 0) {
+                            Log.d(DEBUG_TAG, "Edge gesture page change $gestureIndex -> $targetPage")
+                            vibrateForFlowMove(gestureIndex, targetPage)
+                            gestureIndex = targetPage
+                            onSelectedIndexChange(targetPage)
+                        }
+
+                        val consumedAngle = stepAngleRad * availableSteps
+                        accumulatedAngle -= consumedAngle * directionSign
+                        gestureDelta = 0f
+                        change.consumeAllChanges()
+                    }
+                }
+            }
+            .padding(10.dp),
         contentAlignment = Alignment.Center
     ) {
         if (flows.isEmpty()) {
@@ -640,7 +815,7 @@ private fun CardFlowsScreen(
                 Box(modifier = Modifier.fillMaxWidth().height(railHeight), contentAlignment = Alignment.Center) {
                     flows.forEachIndexed { index, flow ->
                         val targetOffset by animateFloatAsState(
-                            targetValue = ((index - selectedIndex) * adaptiveSpacingPx) + dragOffset.value,
+                            targetValue = (index - selectedIndex) * adaptiveSpacingPx,
                             animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
                             label = "flowOffset$index"
                         )
@@ -651,7 +826,12 @@ private fun CardFlowsScreen(
                             selected = index == selectedIndex,
                             circleSize = if (index == selectedIndex) selectedCircleSize else sideCircleSize,
                             onClick = {
-                                if (index == selectedIndex) onOpenSelectedFlow() else onSelectedIndexChange(index)
+                                if (index == selectedIndex) {
+                                    onOpenSelectedFlow()
+                                } else {
+                                    vibrateForFlowMove(selectedIndex, index)
+                                    onSelectedIndexChange(index)
+                                }
                             },
                             emphasisScale = emphasisScale,
                             emphasisAlpha = emphasisAlpha,
