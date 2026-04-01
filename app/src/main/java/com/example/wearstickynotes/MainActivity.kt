@@ -137,9 +137,9 @@ private const val EDGE_GESTURE_ACTIVATION_SLOP_DEGREES = 0.8f
 private const val EDGE_GESTURE_MIN_DELTA_DEGREES = 0.2f
 private const val EDGE_GESTURE_DIRECTION_REVERSAL_DEGREES = 6f
 private const val EDGE_GESTURE_CONTINUE_INNER_RATIO = 0.55f
-private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM = 90f
-private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST = 180f
-private const val EDGE_GESTURE_MAX_ACCELERATED_SKIP = 4
+private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM = 220f
+private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST = 360f
+private const val EDGE_GESTURE_MAX_ACCELERATED_SKIP = 2
 private const val EDGE_GESTURE_CLOCKWISE_TO_NEXT = true
 private const val EDGE_GESTURE_OUTER_TOLERANCE_PX = 56f
 private const val EDGE_GESTURE_EDGE_INSET_PX = 0f
@@ -738,9 +738,11 @@ private fun CardFlowsScreen(
                         val clockwise = directionSign > 0
                         Log.d(DEBUG_TAG, "Edge gesture direction=${if (clockwise) "clockwise" else "counterclockwise"}")
 
+                        val allowAcceleration = abs(gestureDeltaDegrees) >= (dynamicStepDegrees * 1.35f)
                         val speedMultiplier = when {
-                            instantaneousVelocityDegPerSec >= EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST -> 3
-                            instantaneousVelocityDegPerSec >= EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM -> 2
+                            !allowAcceleration -> 1
+                            instantaneousVelocityDegPerSec >= EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST -> 2
+                            instantaneousVelocityDegPerSec >= EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM && availableSteps >= 2 -> 2
                             else -> 1
                         }
                         var pagesToSkip = (availableSteps * speedMultiplier)
@@ -749,7 +751,7 @@ private fun CardFlowsScreen(
                         if (pagesToSkip > 1) {
                             Log.d(
                                 DEBUG_TAG,
-                                "Edge gesture acceleration velocity=${"%.1f".format(instantaneousVelocityDegPerSec)}°/s jump=$pagesToSkip"
+                                "Edge gesture acceleration velocity=${"%.1f".format(instantaneousVelocityDegPerSec)}°/s allow=$allowAcceleration jump=$pagesToSkip"
                             )
                         }
 
