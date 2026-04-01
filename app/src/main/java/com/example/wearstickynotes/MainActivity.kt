@@ -131,12 +131,14 @@ private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
 private const val EDGE_RING_THICKNESS_RATIO = 0.32f
-private const val EDGE_GESTURE_DEGREES_PER_STEP = 8f
+private const val EDGE_GESTURE_DEGREES_PER_STEP_INNER = 8f
+private const val EDGE_GESTURE_DEGREES_PER_STEP_OUTER = 4f
 private const val EDGE_GESTURE_ACTIVATION_SLOP_DEGREES = 1.5f
 private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM = 90f
 private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST = 180f
 private const val EDGE_GESTURE_MAX_ACCELERATED_SKIP = 4
 private const val EDGE_GESTURE_CLOCKWISE_TO_NEXT = true
+private const val EDGE_GESTURE_OUTER_TOLERANCE_PX = 28f
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -630,6 +632,11 @@ private fun CardFlowsScreen(
                     val dyDown = down.position.y - centerY
                     val distanceDown = sqrt((dxDown * dxDown) + (dyDown * dyDown))
                     val startedInEdgeRing = distanceDown in innerRadius..outerRadius
+                    val ringSpan = (outerRadius - innerRadius).coerceAtLeast(1f)
+                    val radiusProgress = ((distanceDown - innerRadius) / ringSpan).coerceIn(0f, 1f)
+                    val dynamicStepDegrees = EDGE_GESTURE_DEGREES_PER_STEP_INNER +
+                        ((EDGE_GESTURE_DEGREES_PER_STEP_OUTER - EDGE_GESTURE_DEGREES_PER_STEP_INNER) * radiusProgress)
+                    val stepAngleRad = Math.toRadians(dynamicStepDegrees.toDouble()).toFloat()
 
                     if (!startedInEdgeRing) {
                         Log.d(DEBUG_TAG, "Edge gesture ignored: start in center area")
@@ -638,7 +645,7 @@ private fun CardFlowsScreen(
 
                     Log.d(
                         DEBUG_TAG,
-                        "Edge gesture started: distance=$distanceDown inner=$innerRadius outer=$outerRadius"
+                        "Edge gesture started: distance=$distanceDown inner=$innerRadius outer=$outerRadius stepDeg=$dynamicStepDegrees"
                     )
 
                     fun angleFor(x: Float, y: Float): Float =
@@ -661,7 +668,7 @@ private fun CardFlowsScreen(
                         val dx = change.position.x - centerX
                         val dy = change.position.y - centerY
                         val distance = sqrt((dx * dx) + (dy * dy))
-                        if (distance !in innerRadius..outerRadius) {
+                        if (distance < innerRadius || distance > outerRadius + EDGE_GESTURE_OUTER_TOLERANCE_PX) {
                             continue
                         }
 
@@ -690,7 +697,6 @@ private fun CardFlowsScreen(
                         lastEventTime = change.uptimeMillis
 
                         accumulatedAngle += delta
-                        val stepAngleRad = Math.toRadians(EDGE_GESTURE_DEGREES_PER_STEP.toDouble()).toFloat()
                         val availableSteps = (abs(accumulatedAngle) / stepAngleRad).toInt()
 
                         if (availableSteps <= 0) {
