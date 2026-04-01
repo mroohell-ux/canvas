@@ -88,11 +88,13 @@ import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
@@ -566,9 +568,16 @@ private fun CardFlowsScreen(
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     val focusRequester = remember { FocusRequester() }
     val density = LocalDensity.current
+    val hapticFeedback = LocalHapticFeedback.current
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
     val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
+
+    fun vibrateForFlowMove(from: Int, to: Int) {
+        repeat(abs(to - from)) {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+    }
 
     LaunchedEffect(flows.size) {
         if (flows.isNotEmpty()) {
@@ -589,6 +598,7 @@ private fun CardFlowsScreen(
                         if (flows.isNotEmpty()) {
                             val next = (selectedIndex + 1).coerceAtMost(flows.lastIndex)
                             if (next != selectedIndex) {
+                                vibrateForFlowMove(selectedIndex, next)
                                 onSelectedIndexChange(next)
                             }
                         }
@@ -599,6 +609,7 @@ private fun CardFlowsScreen(
                         if (flows.isNotEmpty()) {
                             val previous = (selectedIndex - 1).coerceAtLeast(0)
                             if (previous != selectedIndex) {
+                                vibrateForFlowMove(selectedIndex, previous)
                                 onSelectedIndexChange(previous)
                             }
                         }
@@ -713,6 +724,7 @@ private fun CardFlowsScreen(
                         pagesToSkip = abs(targetPage - gestureIndex)
                         if (pagesToSkip > 0) {
                             Log.d(DEBUG_TAG, "Edge gesture page change $gestureIndex -> $targetPage")
+                            vibrateForFlowMove(gestureIndex, targetPage)
                             gestureIndex = targetPage
                             onSelectedIndexChange(targetPage)
                         }
@@ -768,7 +780,12 @@ private fun CardFlowsScreen(
                             selected = index == selectedIndex,
                             circleSize = if (index == selectedIndex) selectedCircleSize else sideCircleSize,
                             onClick = {
-                                if (index == selectedIndex) onOpenSelectedFlow() else onSelectedIndexChange(index)
+                                if (index == selectedIndex) {
+                                    onOpenSelectedFlow()
+                                } else {
+                                    vibrateForFlowMove(selectedIndex, index)
+                                    onSelectedIndexChange(index)
+                                }
                             },
                             emphasisScale = emphasisScale,
                             emphasisAlpha = emphasisAlpha,
