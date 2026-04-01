@@ -124,6 +124,7 @@ private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2800f
 private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
+private const val GENERIC_SCROLL_PAGE_THRESHOLD = 1f
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -555,6 +556,7 @@ private fun CardFlowsScreen(
     val scope = rememberCoroutineScope()
     val dragOffset = remember { Animatable(0f) }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
+    var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
     val focusRequester = remember { FocusRequester() }
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
@@ -588,6 +590,35 @@ private fun CardFlowsScreen(
                 }
                 rotaryAccumulator = updated
                 true
+            }
+            .pointerInteropFilter { motionEvent ->
+                if (motionEvent.action == MotionEvent.ACTION_SCROLL) {
+                    val vertical = motionEvent.getAxisValue(MotionEvent.AXIS_VSCROLL)
+                    val horizontal = motionEvent.getAxisValue(MotionEvent.AXIS_HSCROLL)
+                    val dominant = if (kotlin.math.abs(vertical) >= kotlin.math.abs(horizontal)) vertical else horizontal
+                    val sourceHasRotary = motionEvent.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER)
+
+                    Log.d(
+                        DEBUG_TAG,
+                        "Input signal: flow genericMotion action=SCROLL sourceRotary=$sourceHasRotary v=$vertical h=$horizontal index=$selectedIndex"
+                    )
+
+                    var updated = genericScrollAccumulator + dominant
+                    when {
+                        updated >= GENERIC_SCROLL_PAGE_THRESHOLD -> {
+                            onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
+                            updated = 0f
+                        }
+
+                        updated <= -GENERIC_SCROLL_PAGE_THRESHOLD -> {
+                            onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0)))
+                            updated = 0f
+                        }
+                    }
+                    genericScrollAccumulator = updated
+                    return@pointerInteropFilter true
+                }
+                false
             }
             .pointerInput(flows.size, selectedIndex) {
                 detectHorizontalDragGestures(
@@ -734,6 +765,7 @@ private fun NotesScreen(
     onTextScaleChange: (TextScaleOption) -> Unit
 ) {
     var showTray by remember { mutableStateOf(false) }
+    var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
     val noteScrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
@@ -860,23 +892,30 @@ private fun NotesScreen(
                             "Input signal: genericMotion action=SCROLL sourceRotary=$sourceHasRotary v=$vertical h=$horizontal page=${pagerState.currentPage}"
                         )
 
-                        if (dominant > 0.5f) {
+                        var updated = genericScrollAccumulator + dominant
+                        if (updated >= GENERIC_SCROLL_PAGE_THRESHOLD) {
                             val previous = (pagerState.currentPage - 1).coerceAtLeast(0)
                             if (previous != pagerState.currentPage) {
                                 scope.launch { pagerState.animateScrollToPage(previous) }
                             }
                             onRotaryAccumulatorChange(0f)
+                            updated = 0f
+                            genericScrollAccumulator = updated
                             return@pointerInteropFilter true
                         }
 
-                        if (dominant < -0.5f) {
+                        if (updated <= -GENERIC_SCROLL_PAGE_THRESHOLD) {
                             val next = (pagerState.currentPage + 1).coerceAtMost(notes.lastIndex)
                             if (next != pagerState.currentPage) {
                                 scope.launch { pagerState.animateScrollToPage(next) }
                             }
                             onRotaryAccumulatorChange(0f)
+                            updated = 0f
+                            genericScrollAccumulator = updated
                             return@pointerInteropFilter true
                         }
+                        genericScrollAccumulator = updated
+                        return@pointerInteropFilter true
                     }
                     false
                 }
