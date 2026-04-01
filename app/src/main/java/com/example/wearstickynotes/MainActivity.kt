@@ -717,6 +717,9 @@ private fun CardFlowsScreen(
                         if (!activated) {
                             activated = true
                             lockedDirectionSign = if (delta > 0f) 1 else -1
+                            // Keep motion gathered before slop activation so light swipes
+                            // can still trigger the first step naturally.
+                            accumulatedAngle = gestureDelta
                             Log.d(DEBUG_TAG, "Edge gesture activated after slop=${EDGE_GESTURE_ACTIVATION_SLOP_DEGREES}°")
                         }
 
