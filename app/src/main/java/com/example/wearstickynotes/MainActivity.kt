@@ -667,16 +667,34 @@ private fun CardFlowsScreen(
                     var accumulatedAngle = 0f
                     var gestureDelta = 0f
                     var lastEventTime = down.uptimeMillis
-                    val pointerId = down.id
+                    var pointerId = down.id
                     var activated = false
                     var gestureIndex = selectedIndex
                     var lockedDirectionSign = 0
 
                     while (true) {
                         val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { pointerChange -> pointerChange.id == pointerId } ?: break
+                        var change = event.changes.firstOrNull { pointerChange -> pointerChange.id == pointerId }
+                        if (change == null) {
+                            val replacement = event.changes.firstOrNull { it.pressed } ?: break
+                            pointerId = replacement.id
+                            previousAngle = angleFor(replacement.position.x, replacement.position.y)
+                            lastEventTime = replacement.uptimeMillis
+                            Log.d(DEBUG_TAG, "Edge gesture pointer switched to id=$pointerId")
+                            continue
+                        }
 
-                        if (!change.pressed) break
+                        if (!change.pressed) {
+                            val replacement = event.changes.firstOrNull { it.pressed }
+                            if (replacement != null) {
+                                pointerId = replacement.id
+                                previousAngle = angleFor(replacement.position.x, replacement.position.y)
+                                lastEventTime = replacement.uptimeMillis
+                                Log.d(DEBUG_TAG, "Edge gesture pointer lifted; switched to id=$pointerId")
+                                continue
+                            }
+                            break
+                        }
 
                         val dx = change.position.x - centerX
                         val dy = change.position.y - centerY
