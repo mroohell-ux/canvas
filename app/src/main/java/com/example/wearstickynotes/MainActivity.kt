@@ -130,10 +130,13 @@ private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2800f
 private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
-private const val EDGE_RING_THICKNESS_RATIO = 0.32f
+private const val EDGE_RING_THICKNESS_RATIO = 0.40f
 private const val EDGE_GESTURE_DEGREES_PER_STEP_INNER = 5f
 private const val EDGE_GESTURE_DEGREES_PER_STEP_OUTER = 2.2f
 private const val EDGE_GESTURE_ACTIVATION_SLOP_DEGREES = 0.8f
+private const val EDGE_GESTURE_MIN_DELTA_DEGREES = 0.2f
+private const val EDGE_GESTURE_DIRECTION_REVERSAL_DEGREES = 6f
+private const val EDGE_GESTURE_CONTINUE_INNER_RATIO = 0.55f
 private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM = 90f
 private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST = 180f
 private const val EDGE_GESTURE_MAX_ACCELERATED_SKIP = 4
@@ -667,6 +670,7 @@ private fun CardFlowsScreen(
                     val pointerId = down.id
                     var activated = false
                     var gestureIndex = selectedIndex
+                    var lockedDirectionSign = 0
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -677,7 +681,8 @@ private fun CardFlowsScreen(
                         val dx = change.position.x - centerX
                         val dy = change.position.y - centerY
                         val distance = sqrt((dx * dx) + (dy * dy))
-                        if (distance < innerRadius || distance > outerRadius + EDGE_GESTURE_OUTER_TOLERANCE_PX) {
+                        val continueInnerRadius = innerRadius * EDGE_GESTURE_CONTINUE_INNER_RATIO
+                        if (distance < continueInnerRadius || distance > outerRadius + EDGE_GESTURE_OUTER_TOLERANCE_PX) {
                             continue
                         }
 
@@ -686,6 +691,20 @@ private fun CardFlowsScreen(
                         if (delta > PI.toFloat()) delta -= (2f * PI.toFloat())
                         if (delta < -PI.toFloat()) delta += (2f * PI.toFloat())
                         previousAngle = angle
+                        val deltaDegrees = Math.toDegrees(delta.toDouble()).toFloat()
+                        if (abs(deltaDegrees) < EDGE_GESTURE_MIN_DELTA_DEGREES) {
+                            continue
+                        }
+
+                        if (lockedDirectionSign != 0 && (delta * lockedDirectionSign) < 0f) {
+                            if (abs(deltaDegrees) < EDGE_GESTURE_DIRECTION_REVERSAL_DEGREES) {
+                                continue
+                            }
+                            // Real reversal: reset accumulation so direction changes feel intentional.
+                            accumulatedAngle = 0f
+                            gestureDelta = 0f
+                            lockedDirectionSign = if (delta > 0f) 1 else -1
+                        }
 
                         gestureDelta += delta
                         val gestureDeltaDegrees = Math.toDegrees(gestureDelta.toDouble()).toFloat()
@@ -697,12 +716,13 @@ private fun CardFlowsScreen(
 
                         if (!activated) {
                             activated = true
+                            lockedDirectionSign = if (delta > 0f) 1 else -1
                             Log.d(DEBUG_TAG, "Edge gesture activated after slop=${EDGE_GESTURE_ACTIVATION_SLOP_DEGREES}°")
                         }
 
                         val elapsedMs = (change.uptimeMillis - lastEventTime).coerceAtLeast(1L)
                         val instantaneousVelocityDegPerSec =
-                            abs(Math.toDegrees(delta.toDouble()).toFloat()) / (elapsedMs / 1000f)
+                            abs(deltaDegrees) / (elapsedMs / 1000f)
                         lastEventTime = change.uptimeMillis
 
                         accumulatedAngle += delta
