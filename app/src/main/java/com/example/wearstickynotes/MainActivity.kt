@@ -135,7 +135,6 @@ private const val EDGE_GESTURE_DEGREES_PER_STEP_INNER = 5f
 private const val EDGE_GESTURE_DEGREES_PER_STEP_OUTER = 2.2f
 private const val EDGE_GESTURE_ACTIVATION_SLOP_DEGREES = 0.8f
 private const val EDGE_GESTURE_MIN_DELTA_DEGREES = 0.2f
-private const val EDGE_GESTURE_DIRECTION_REVERSAL_DEGREES = 6f
 private const val EDGE_GESTURE_CONTINUE_INNER_RATIO = 0.55f
 private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM = 220f
 private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST = 360f
@@ -670,7 +669,6 @@ private fun CardFlowsScreen(
                     var pointerId = down.id
                     var activated = false
                     var gestureIndex = selectedIndex
-                    var lockedDirectionSign = 0
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -714,16 +712,6 @@ private fun CardFlowsScreen(
                             continue
                         }
 
-                        if (lockedDirectionSign != 0 && (delta * lockedDirectionSign) < 0f) {
-                            if (abs(deltaDegrees) < EDGE_GESTURE_DIRECTION_REVERSAL_DEGREES) {
-                                continue
-                            }
-                            // Real reversal: reset accumulation so direction changes feel intentional.
-                            accumulatedAngle = 0f
-                            gestureDelta = 0f
-                            lockedDirectionSign = if (delta > 0f) 1 else -1
-                        }
-
                         gestureDelta += delta
                         val gestureDeltaDegrees = Math.toDegrees(gestureDelta.toDouble()).toFloat()
                         Log.d(DEBUG_TAG, "Edge gesture angle delta=${"%.2f".format(gestureDeltaDegrees)}°")
@@ -734,7 +722,6 @@ private fun CardFlowsScreen(
 
                         if (!activated) {
                             activated = true
-                            lockedDirectionSign = if (delta > 0f) 1 else -1
                             // Keep motion gathered before slop activation so light swipes
                             // can still trigger the first step naturally.
                             accumulatedAngle = gestureDelta
