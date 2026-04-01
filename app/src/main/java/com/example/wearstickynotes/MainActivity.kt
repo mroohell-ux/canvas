@@ -138,8 +138,8 @@ private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_MEDIUM = 90f
 private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST = 180f
 private const val EDGE_GESTURE_MAX_ACCELERATED_SKIP = 4
 private const val EDGE_GESTURE_CLOCKWISE_TO_NEXT = true
-private const val EDGE_GESTURE_OUTER_TOLERANCE_PX = 28f
-private const val EDGE_GESTURE_EDGE_INSET_PX = 24f
+private const val EDGE_GESTURE_OUTER_TOLERANCE_PX = 56f
+private const val EDGE_GESTURE_EDGE_INSET_PX = 0f
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -643,7 +643,7 @@ private fun CardFlowsScreen(
 
                     Log.d(
                         DEBUG_TAG,
-                        "Edge touch down x=${down.position.x}, y=${down.position.y}, distance=$distanceDown, inner=$innerRadius, outer=$outerRadius, outerTol=${outerRadius + EDGE_GESTURE_OUTER_TOLERANCE_PX}, inRing=$startedInEdgeRing"
+                        "Edge touch down x=${down.position.x}, y=${down.position.y}, size=(${size.width}x${size.height}), distance=$distanceDown, inner=$innerRadius, outer=$outerRadius, outerTol=${outerRadius + EDGE_GESTURE_OUTER_TOLERANCE_PX}, inRing=$startedInEdgeRing"
                     )
 
                     if (!startedInEdgeRing) {
