@@ -139,6 +139,7 @@ private const val EDGE_GESTURE_ACCEL_VELOCITY_DEG_PER_SEC_FAST = 180f
 private const val EDGE_GESTURE_MAX_ACCELERATED_SKIP = 4
 private const val EDGE_GESTURE_CLOCKWISE_TO_NEXT = true
 private const val EDGE_GESTURE_OUTER_TOLERANCE_PX = 28f
+private const val EDGE_GESTURE_EDGE_INSET_PX = 24f
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -626,7 +627,8 @@ private fun CardFlowsScreen(
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val centerX = size.width / 2f
                     val centerY = size.height / 2f
-                    val outerRadius = minOf(size.width, size.height) / 2f
+                    val physicalOuterRadius = minOf(size.width, size.height) / 2f
+                    val outerRadius = (physicalOuterRadius - EDGE_GESTURE_EDGE_INSET_PX).coerceAtLeast(1f)
                     val innerRadius = (outerRadius * (1f - EDGE_RING_THICKNESS_RATIO)).coerceAtLeast(0f)
                     val dxDown = down.position.x - centerX
                     val dyDown = down.position.y - centerY
@@ -645,7 +647,7 @@ private fun CardFlowsScreen(
 
                     Log.d(
                         DEBUG_TAG,
-                        "Edge gesture started: distance=$distanceDown inner=$innerRadius outer=$outerRadius stepDeg=$dynamicStepDegrees"
+                        "Edge gesture started: distance=$distanceDown inner=$innerRadius outer=$outerRadius physicalOuter=$physicalOuterRadius stepDeg=$dynamicStepDegrees"
                     )
 
                     fun angleFor(x: Float, y: Float): Float =
