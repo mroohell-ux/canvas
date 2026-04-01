@@ -633,15 +633,22 @@ private fun CardFlowsScreen(
                     val dxDown = down.position.x - centerX
                     val dyDown = down.position.y - centerY
                     val distanceDown = sqrt((dxDown * dxDown) + (dyDown * dyDown))
-                    val startedInEdgeRing = distanceDown in innerRadius..outerRadius
+                    val startedInEdgeRing =
+                        distanceDown >= innerRadius && distanceDown <= (outerRadius + EDGE_GESTURE_OUTER_TOLERANCE_PX)
                     val ringSpan = (outerRadius - innerRadius).coerceAtLeast(1f)
                     val radiusProgress = ((distanceDown - innerRadius) / ringSpan).coerceIn(0f, 1f)
                     val dynamicStepDegrees = EDGE_GESTURE_DEGREES_PER_STEP_INNER +
                         ((EDGE_GESTURE_DEGREES_PER_STEP_OUTER - EDGE_GESTURE_DEGREES_PER_STEP_INNER) * radiusProgress)
                     val stepAngleRad = Math.toRadians(dynamicStepDegrees.toDouble()).toFloat()
 
+                    Log.d(
+                        DEBUG_TAG,
+                        "Edge touch down x=${down.position.x}, y=${down.position.y}, distance=$distanceDown, inner=$innerRadius, outer=$outerRadius, outerTol=${outerRadius + EDGE_GESTURE_OUTER_TOLERANCE_PX}, inRing=$startedInEdgeRing"
+                    )
+
                     if (!startedInEdgeRing) {
-                        Log.d(DEBUG_TAG, "Edge gesture ignored: start in center area")
+                        val reason = if (distanceDown < innerRadius) "center-area" else "outside-outer-ring"
+                        Log.d(DEBUG_TAG, "Edge gesture ignored: $reason startDistance=$distanceDown")
                         return@awaitEachGesture
                     }
 
