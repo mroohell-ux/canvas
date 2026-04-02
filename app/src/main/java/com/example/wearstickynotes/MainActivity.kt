@@ -1009,6 +1009,55 @@ private fun NotesScreen(
                 .fillMaxSize()
                 .focusRequester(focusRequester)
                 .focusable()
+                .pointerInput(showTray, notes.size) {
+                    if (!showTray && notes.isNotEmpty()) {
+                        var lastEventTime = 0L
+                        var lastVelocityX = 0f
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                isPreviewMode = true
+                                previewDragAccumulator = 0f
+                                lastEventTime = 0L
+                                lastVelocityX = 0f
+                            },
+                            onDragEnd = {
+                                isPreviewMode = false
+                                previewDragAccumulator = 0f
+                                lastEventTime = 0L
+                                lastVelocityX = 0f
+                            },
+                            onDragCancel = {
+                                isPreviewMode = false
+                                previewDragAccumulator = 0f
+                                lastEventTime = 0L
+                                lastVelocityX = 0f
+                            }
+                        ) { change, dragAmount ->
+                            change.consume()
+                            val now = change.uptimeMillis
+                            val deltaMs = if (lastEventTime == 0L) 16L else (now - lastEventTime).coerceAtLeast(1L)
+                            val velocityX = dragAmount.x / deltaMs.toFloat() // px/ms
+                            val accelerationX = (velocityX - lastVelocityX) / deltaMs.toFloat() // px/ms^2
+                            val accelerationBoost = (1f + (kotlin.math.abs(accelerationX) * 350f)).coerceIn(1f, 5f)
+
+                            previewDragAccumulator += dragAmount.x * accelerationBoost
+                            lastEventTime = now
+                            lastVelocityX = velocityX
+
+                            val steps = (kotlin.math.abs(previewDragAccumulator) / previewStepThresholdPx).toInt()
+                            if (steps > 0) {
+                                val direction = if (previewDragAccumulator < 0f) 1 else -1
+                                val targetPage = pagerState.currentPage + (direction * steps)
+                                scope.launch { pagerState.scrollToPage(targetPage) }
+                                previewDragAccumulator = if (previewDragAccumulator < 0f) {
+                                    previewDragAccumulator + (previewStepThresholdPx * steps)
+                                } else {
+                                    previewDragAccumulator - (previewStepThresholdPx * steps)
+                                }
+                            }
+                        }
+                    }
+                }
                 .pointerInteropFilter { motionEvent ->
                     if (motionEvent.action == MotionEvent.ACTION_SCROLL) {
                         val sourceHasRotary = motionEvent.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER)
@@ -1098,55 +1147,6 @@ private fun NotesScreen(
                                     }
                                 }
                             )
-                        }
-                        .pointerInput(note.id, showTray) {
-                            if (!showTray) {
-                                var lastEventTime = 0L
-                                var lastVelocityX = 0f
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = {
-                                        isPreviewMode = true
-                                        previewDragAccumulator = 0f
-                                        lastEventTime = 0L
-                                        lastVelocityX = 0f
-                                    },
-                                    onDragEnd = {
-                                        isPreviewMode = false
-                                        previewDragAccumulator = 0f
-                                        lastEventTime = 0L
-                                        lastVelocityX = 0f
-                                    },
-                                    onDragCancel = {
-                                        isPreviewMode = false
-                                        previewDragAccumulator = 0f
-                                        lastEventTime = 0L
-                                        lastVelocityX = 0f
-                                    }
-                                ) { change, dragAmount ->
-                                    change.consume()
-                                    val now = change.uptimeMillis
-                                    val deltaMs = if (lastEventTime == 0L) 16L else (now - lastEventTime).coerceAtLeast(1L)
-                                    val velocityX = dragAmount.x / deltaMs.toFloat() // px/ms
-                                    val accelerationX = (velocityX - lastVelocityX) / deltaMs.toFloat() // px/ms^2
-                                    val accelerationBoost = (1f + (kotlin.math.abs(accelerationX) * 350f)).coerceIn(1f, 5f)
-
-                                    previewDragAccumulator += dragAmount.x * accelerationBoost
-                                    lastEventTime = now
-                                    lastVelocityX = velocityX
-
-                                    val steps = (kotlin.math.abs(previewDragAccumulator) / previewStepThresholdPx).toInt()
-                                    if (steps > 0) {
-                                        val direction = if (previewDragAccumulator < 0f) 1 else -1
-                                        val targetPage = pagerState.currentPage + (direction * steps)
-                                        scope.launch { pagerState.scrollToPage(targetPage) }
-                                        previewDragAccumulator = if (previewDragAccumulator < 0f) {
-                                            previewDragAccumulator + (previewStepThresholdPx * steps)
-                                        } else {
-                                            previewDragAccumulator - (previewStepThresholdPx * steps)
-                                        }
-                                    }
-                                }
-                            }
                         },
                     contentAlignment = Alignment.Center
                 ) {
