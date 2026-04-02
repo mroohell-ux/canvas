@@ -1,5 +1,6 @@
 package com.example.wearstickynotes
 
+import android.app.Activity
 import android.content.Context
 import android.view.InputDevice
 import android.view.MotionEvent
@@ -10,9 +11,9 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
@@ -29,6 +30,8 @@ import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -84,9 +87,11 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -124,6 +129,7 @@ private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2800f
 private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
+private const val GENERIC_SCROLL_PAGE_THRESHOLD = 1f
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -251,6 +257,20 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         add(allNotesFlow)
         add(collectionsFlow)
         addAll(groupedFlows)
+    }
+
+    BackHandler {
+        when {
+            importState !is ImportState.Idle -> {
+                importState = ImportState.Idle
+            }
+            appScreen == AppScreen.Notes -> {
+                appScreen = AppScreen.CardFlows
+            }
+            else -> {
+                (context as? Activity)?.finish()
+            }
+        }
     }
 
     LaunchedEffect(flowBuckets, pendingRestoreFlowId) {
@@ -418,7 +438,17 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                                 flowLastOpenedNoteIndex.putIfAbsent(activeId, 0)
                                 appScreen = AppScreen.Notes
                             }
-                        }
+                        },
+                        onImportFromPhone = { startDiscovery() },
+                        shuffleMode = shuffleMode,
+                        onToggleShuffle = {
+                            if (!shuffleMode) {
+                                shuffleSeed = Random.nextInt()
+                            }
+                            shuffleMode = !shuffleMode
+                        },
+                        textScale = textScale,
+                        onTextScaleChange = { option -> textScale = option }
                     )
 
                     AppScreen.Notes -> NotesScreen(
@@ -435,7 +465,6 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                             val current = noteSideState[noteId] ?: false
                             noteSideState[noteId] = !current
                         },
-                        onLongPressExit = { appScreen = AppScreen.CardFlows },
                         isCollectionsFlow = activeFlow?.id == (Long.MIN_VALUE + 1),
                         isNoteInCollection = { noteId -> collectionNoteState[noteId] == true },
                         onToggleCollection = { noteId ->
@@ -545,25 +574,48 @@ private fun ImportFlowScreen(
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun CardFlowsScreen(
     flows: List<CardFlow>,
     selectedIndex: Int,
     onSelectedIndexChange: (Int) -> Unit,
-    onOpenSelectedFlow: () -> Unit
+    onOpenSelectedFlow: () -> Unit,
+    onImportFromPhone: () -> Unit,
+    shuffleMode: Boolean,
+    onToggleShuffle: () -> Unit,
+    textScale: TextScaleOption,
+    onTextScaleChange: (TextScaleOption) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    val dragOffset = remember { Animatable(0f) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
+    var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
+    var showTray by remember { mutableStateOf(false) }
+    var lastHapticFlowIndex by remember { mutableIntStateOf(selectedIndex) }
     val focusRequester = remember { FocusRequester() }
+    val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
     val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
+    val bottomTrayEdgePx = with(density) { 56.dp.toPx() }
+    val swipeOpenThresholdPx = with(density) { 24.dp.toPx() }
+    val trayScrimAlpha by animateFloatAsState(
+        targetValue = if (showTray) 0.30f else 0f,
+        animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
+        label = "flowTrayScrimAlpha"
+    )
 
     LaunchedEffect(flows.size) {
         if (flows.isNotEmpty()) {
             focusRequester.requestFocus()
+        }
+    }
+
+    LaunchedEffect(selectedIndex) {
+        if (selectedIndex != lastHapticFlowIndex) {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            lastHapticFlowIndex = selectedIndex
         }
     }
 
@@ -589,23 +641,71 @@ private fun CardFlowsScreen(
                 rotaryAccumulator = updated
                 true
             }
+            .pointerInteropFilter { motionEvent ->
+                if (motionEvent.action == MotionEvent.ACTION_SCROLL) {
+                    val vertical = motionEvent.getAxisValue(MotionEvent.AXIS_VSCROLL)
+                    val horizontal = motionEvent.getAxisValue(MotionEvent.AXIS_HSCROLL)
+                    val dominant = if (kotlin.math.abs(vertical) >= kotlin.math.abs(horizontal)) vertical else horizontal
+                    val sourceHasRotary = motionEvent.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER)
+
+                    Log.d(
+                        DEBUG_TAG,
+                        "Input signal: flow genericMotion action=SCROLL sourceRotary=$sourceHasRotary v=$vertical h=$horizontal index=$selectedIndex"
+                    )
+
+                    var updated = genericScrollAccumulator + dominant
+                    when {
+                        updated >= GENERIC_SCROLL_PAGE_THRESHOLD -> {
+                            onSelectedIndexChange((selectedIndex - 1).coerceAtLeast(0))
+                            updated = 0f
+                        }
+
+                        updated <= -GENERIC_SCROLL_PAGE_THRESHOLD -> {
+                            onSelectedIndexChange((selectedIndex + 1).coerceAtMost(flows.lastIndex.coerceAtLeast(0)))
+                            updated = 0f
+                        }
+                    }
+                    genericScrollAccumulator = updated
+                    return@pointerInteropFilter true
+                }
+                false
+            }
             .pointerInput(flows.size, selectedIndex) {
                 detectHorizontalDragGestures(
                     onHorizontalDrag = { _, amount ->
-                        scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
+                        dragOffset += amount
                     },
                     onDragEnd = {
-                        val dragSteps = (dragOffset.value / spacingPx).roundToInt()
+                        val dragSteps = (dragOffset / spacingPx).roundToInt()
                         val targetIndex = (selectedIndex - dragSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
                         if (targetIndex != selectedIndex) {
                             onSelectedIndexChange(targetIndex)
                         }
-                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+                        dragOffset = 0f
                     },
                     onDragCancel = {
-                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+                        dragOffset = 0f
                     }
                 )
+            }
+            .pointerInput(showTray) {
+                if (!showTray) {
+                    var startedFromBottom = false
+                    var cumulativeDrag = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { offset ->
+                            startedFromBottom = offset.y >= (size.height - bottomTrayEdgePx)
+                            cumulativeDrag = 0f
+                        },
+                        onVerticalDrag = { _, dragAmount ->
+                            if (!startedFromBottom) return@detectVerticalDragGestures
+                            cumulativeDrag += dragAmount
+                            if (cumulativeDrag <= -swipeOpenThresholdPx) {
+                                showTray = true
+                            }
+                        }
+                    )
+                }
             },
         contentAlignment = Alignment.Center
     ) {
@@ -640,8 +740,8 @@ private fun CardFlowsScreen(
                 Box(modifier = Modifier.fillMaxWidth().height(railHeight), contentAlignment = Alignment.Center) {
                     flows.forEachIndexed { index, flow ->
                         val targetOffset by animateFloatAsState(
-                            targetValue = ((index - selectedIndex) * adaptiveSpacingPx) + dragOffset.value,
-                            animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
+                            targetValue = ((index - selectedIndex) * adaptiveSpacingPx) + dragOffset,
+                            animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
                             label = "flowOffset$index"
                         )
                         val emphasisScale = scaleFor(targetOffset)
@@ -659,6 +759,53 @@ private fun CardFlowsScreen(
                                 .zIndex(emphasisScale)
                                 .offset { IntOffset(targetOffset.roundToInt(), 0) }
                         )
+                    }
+                }
+            }
+        }
+
+        if (trayScrimAlpha > 0.001f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = trayScrimAlpha))
+                    .clickable { showTray = false }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showTray,
+            enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = 8.dp, end = 8.dp, bottom = 20.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xDD101418))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Button(onClick = {
+                    showTray = false
+                    onImportFromPhone()
+                }) { Text("Import notes") }
+
+                Button(onClick = onToggleShuffle) {
+                    Text(if (shuffleMode) "Shuffle: On" else "Shuffle: Off")
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextScaleOption.entries.forEach { option ->
+                        Button(
+                            onClick = { onTextScaleChange(option) },
+                            colors = if (textScale == option) ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2C6E49)
+                            ) else ButtonDefaults.buttonColors()
+                        ) { Text(option.label) }
                     }
                 }
             }
@@ -723,7 +870,6 @@ private fun NotesScreen(
     onSelectedIndexChange: (Int) -> Unit,
     isNoteBackVisible: (String) -> Boolean,
     onFlip: (String) -> Unit,
-    onLongPressExit: () -> Unit,
     isCollectionsFlow: Boolean,
     isNoteInCollection: (String) -> Boolean,
     onToggleCollection: (String) -> Unit,
@@ -733,13 +879,41 @@ private fun NotesScreen(
     textScale: TextScaleOption,
     onTextScaleChange: (TextScaleOption) -> Unit
 ) {
+    fun wrappedNoteIndex(page: Int): Int {
+        if (notes.isEmpty()) return 0
+        val size = notes.size
+        return ((page % size) + size) % size
+    }
+
+    fun nearestVirtualPage(currentPage: Int, targetIndex: Int): Int {
+        if (notes.isEmpty()) return 0
+        val size = notes.size
+        val base = currentPage - wrappedNoteIndex(currentPage)
+        val candidates = listOf(base + targetIndex, base + targetIndex + size, base + targetIndex - size)
+        return candidates.minBy { kotlin.math.abs(it - currentPage) }
+    }
+
     var showTray by remember { mutableStateOf(false) }
+    var isPreviewMode by remember { mutableStateOf(false) }
+    var previewDragAccumulator by remember { mutableFloatStateOf(0f) }
+    var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
+    var lastHapticNoteIndex by remember { mutableIntStateOf(selectedIndex) }
     val noteScrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val initialVirtualPage = remember(notes.size, selectedIndex) {
+        if (notes.isEmpty()) {
+            0
+        } else {
+            val half = Int.MAX_VALUE / 2
+            val centered = half - wrappedNoteIndex(half)
+            centered + selectedIndex.coerceIn(0, notes.lastIndex)
+        }
+    }
     val pagerState = rememberPagerState(
-        initialPage = selectedIndex.coerceAtLeast(0),
-        pageCount = { notes.size }
+        initialPage = initialVirtualPage,
+        pageCount = { if (notes.isEmpty()) 0 else Int.MAX_VALUE }
     )
     val swipeAccelerationConnection = remember(pagerState, notes.size) {
         object : NestedScrollConnection {
@@ -756,7 +930,7 @@ private fun NotesScreen(
                 // Preserve the page user already dragged toward and only add
                 // EXTRA pages for stronger flicks, so release result matches
                 // what user saw right before lifting finger.
-                val baseTargetPage = pagerState.targetPage.coerceIn(0, notes.lastIndex)
+                val baseTargetPage = pagerState.targetPage
                 val extraPagesByVelocity = when {
                     absoluteVelocity >= SWIPE_ACCEL_VELOCITY_4_PAGES -> 3
                     absoluteVelocity >= SWIPE_ACCEL_VELOCITY_3_PAGES -> 2
@@ -765,8 +939,7 @@ private fun NotesScreen(
                 }
 
                 val direction = if (velocityX < 0f) 1 else -1
-                val targetPage = (baseTargetPage + (extraPagesByVelocity * direction))
-                    .coerceIn(0, notes.lastIndex)
+                val targetPage = baseTargetPage + (extraPagesByVelocity * direction)
                 val pagesSkipped = kotlin.math.abs(targetPage - pagerState.currentPage)
 
                 if (targetPage != baseTargetPage && pagesSkipped <= SWIPE_MAX_PAGES_PER_FLING) {
@@ -791,6 +964,7 @@ private fun NotesScreen(
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
         label = "trayScrimAlpha"
     )
+    val previewStepThresholdPx = with(LocalDensity.current) { 18.dp.toPx() }
 
     LaunchedEffect(notes.size, showTray) {
         if (!showTray && notes.isNotEmpty()) {
@@ -803,15 +977,12 @@ private fun NotesScreen(
         if (notes.isEmpty()) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(flowName, isCollectionsFlow) {
-                        detectTapGestures(onLongPress = { onLongPressExit() })
-                    },
+                    .fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 if (isCollectionsFlow) {
                     Text(
-                        text = "Collections is empty Long press to return",
+                        text = "Collections is empty",
                         color = Color.White.copy(alpha = 0.92f),
                         textAlign = TextAlign.Center
                     )
@@ -824,7 +995,10 @@ private fun NotesScreen(
 
         LaunchedEffect(notes, selectedIndex) {
             if (notes.isNotEmpty()) {
-                val targetPage = selectedIndex.coerceIn(0, notes.lastIndex)
+                val targetPage = nearestVirtualPage(
+                    currentPage = pagerState.currentPage,
+                    targetIndex = selectedIndex.coerceIn(0, notes.lastIndex)
+                )
                 if (targetPage != pagerState.currentPage) {
                     pagerState.scrollToPage(targetPage)
                 }
@@ -837,8 +1011,13 @@ private fun NotesScreen(
             snapshotFlow { pagerState.settledPage }
                 .collect { page ->
                     if (notes.isNotEmpty()) {
-                        Log.d(DEBUG_TAG, "Notes pager settled page changed to $page (total=${notes.size})")
-                        onSelectedIndexChange(page.coerceIn(0, notes.lastIndex))
+                        val wrappedIndex = wrappedNoteIndex(page)
+                        Log.d(DEBUG_TAG, "Notes pager settled page changed to $page (wrapped=$wrappedIndex total=${notes.size})")
+                        onSelectedIndexChange(wrappedIndex)
+                        if (wrappedIndex != lastHapticNoteIndex) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            lastHapticNoteIndex = wrappedIndex
+                        }
                     }
                 }
         }
@@ -848,6 +1027,55 @@ private fun NotesScreen(
                 .fillMaxSize()
                 .focusRequester(focusRequester)
                 .focusable()
+                .pointerInput(showTray, notes.size) {
+                    if (!showTray && notes.isNotEmpty()) {
+                        var lastEventTime = 0L
+                        var lastVelocityX = 0f
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                isPreviewMode = true
+                                previewDragAccumulator = 0f
+                                lastEventTime = 0L
+                                lastVelocityX = 0f
+                            },
+                            onDragEnd = {
+                                isPreviewMode = false
+                                previewDragAccumulator = 0f
+                                lastEventTime = 0L
+                                lastVelocityX = 0f
+                            },
+                            onDragCancel = {
+                                isPreviewMode = false
+                                previewDragAccumulator = 0f
+                                lastEventTime = 0L
+                                lastVelocityX = 0f
+                            }
+                        ) { change, dragAmount ->
+                            change.consume()
+                            val now = change.uptimeMillis
+                            val deltaMs = if (lastEventTime == 0L) 16L else (now - lastEventTime).coerceAtLeast(1L)
+                            val velocityX = dragAmount.x / deltaMs.toFloat() // px/ms
+                            val accelerationX = (velocityX - lastVelocityX) / deltaMs.toFloat() // px/ms^2
+                            val accelerationBoost = (1f + (kotlin.math.abs(accelerationX) * 350f)).coerceIn(1f, 5f)
+
+                            previewDragAccumulator += dragAmount.x * accelerationBoost
+                            lastEventTime = now
+                            lastVelocityX = velocityX
+
+                            val steps = (kotlin.math.abs(previewDragAccumulator) / previewStepThresholdPx).toInt()
+                            if (steps > 0) {
+                                val direction = if (previewDragAccumulator < 0f) 1 else -1
+                                val targetPage = pagerState.currentPage + (direction * steps)
+                                scope.launch { pagerState.animateScrollToPage(targetPage) }
+                                previewDragAccumulator = if (previewDragAccumulator < 0f) {
+                                    previewDragAccumulator + (previewStepThresholdPx * steps)
+                                } else {
+                                    previewDragAccumulator - (previewStepThresholdPx * steps)
+                                }
+                            }
+                        }
+                    }
+                }
                 .pointerInteropFilter { motionEvent ->
                     if (motionEvent.action == MotionEvent.ACTION_SCROLL) {
                         val sourceHasRotary = motionEvent.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER)
@@ -860,23 +1088,26 @@ private fun NotesScreen(
                             "Input signal: genericMotion action=SCROLL sourceRotary=$sourceHasRotary v=$vertical h=$horizontal page=${pagerState.currentPage}"
                         )
 
-                        if (dominant > 0.5f) {
-                            val previous = (pagerState.currentPage - 1).coerceAtLeast(0)
-                            if (previous != pagerState.currentPage) {
-                                scope.launch { pagerState.animateScrollToPage(previous) }
-                            }
+                        var updated = genericScrollAccumulator + dominant
+                        if (updated >= GENERIC_SCROLL_PAGE_THRESHOLD) {
+                            val previous = pagerState.currentPage - 1
+                            scope.launch { pagerState.animateScrollToPage(previous) }
                             onRotaryAccumulatorChange(0f)
+                            updated = 0f
+                            genericScrollAccumulator = updated
                             return@pointerInteropFilter true
                         }
 
-                        if (dominant < -0.5f) {
-                            val next = (pagerState.currentPage + 1).coerceAtMost(notes.lastIndex)
-                            if (next != pagerState.currentPage) {
-                                scope.launch { pagerState.animateScrollToPage(next) }
-                            }
+                        if (updated <= -GENERIC_SCROLL_PAGE_THRESHOLD) {
+                            val next = pagerState.currentPage + 1
+                            scope.launch { pagerState.animateScrollToPage(next) }
                             onRotaryAccumulatorChange(0f)
+                            updated = 0f
+                            genericScrollAccumulator = updated
                             return@pointerInteropFilter true
                         }
+                        genericScrollAccumulator = updated
+                        return@pointerInteropFilter true
                     }
                     false
                 }
@@ -888,18 +1119,14 @@ private fun NotesScreen(
                     var updated = rotaryAccumulator + it.verticalScrollPixels
                     when {
                         updated > 25f -> {
-                            val next = (pagerState.currentPage + 1).coerceAtMost(notes.lastIndex)
-                            if (next != pagerState.currentPage) {
-                                scope.launch { pagerState.animateScrollToPage(next) }
-                            }
+                            val next = pagerState.currentPage + 1
+                            scope.launch { pagerState.animateScrollToPage(next) }
                             updated = 0f
                         }
 
                         updated < -25f -> {
-                            val previous = (pagerState.currentPage - 1).coerceAtLeast(0)
-                            if (previous != pagerState.currentPage) {
-                                scope.launch { pagerState.animateScrollToPage(previous) }
-                            }
+                            val previous = pagerState.currentPage - 1
+                            scope.launch { pagerState.animateScrollToPage(previous) }
                             updated = 0f
                         }
                     }
@@ -914,7 +1141,8 @@ private fun NotesScreen(
                     .fillMaxSize()
                     .nestedScroll(swipeAccelerationConnection)
             ) { page ->
-                val note = notes[page]
+                val pageNoteIndex = wrappedNoteIndex(page)
+                val note = notes[pageNoteIndex]
                 val showBack = isNoteBackVisible(note.id)
                 val text = if (showBack) note.back.text else note.front.text
                 val label = if (showBack) note.back.label else note.front.label
@@ -930,14 +1158,6 @@ private fun NotesScreen(
                         .background(noteRadialGradient(note))
                         .pointerInput(note.id, showTray) {
                             detectTapGestures(
-                                onLongPress = {
-                                    Log.d(DEBUG_TAG, "Input signal: longPress noteId=${note.id}, trayOpen=$showTray")
-                                    if (!showTray) onLongPressExit()
-                                },
-                                onDoubleTap = {
-                                    Log.d(DEBUG_TAG, "Input signal: doubleTap noteId=${note.id}, togglingTrayTo=${!showTray}")
-                                    showTray = !showTray
-                                },
                                 onTap = {
                                     Log.d(DEBUG_TAG, "Input signal: tap noteId=${note.id}, trayOpen=$showTray")
                                     if (!showTray) {
@@ -996,7 +1216,7 @@ private fun NotesScreen(
                         val effectiveLineHeight = effectiveFontSize * 1.2
                         val useScrollableTopLayout = needsScroll
                         Text(
-                            text = "$flowName • ${page + 1}/${notes.size} • ${label}",
+                            text = "$flowName • ${pageNoteIndex + 1}/${notes.size} • ${label}",
                             fontSize = 12.sp,
                             color = Color.White.copy(alpha = 0.86f),
                             textAlign = TextAlign.Center,
@@ -1004,6 +1224,16 @@ private fun NotesScreen(
                                 .align(Alignment.TopCenter)
                                 .padding(top = 2.dp)
                         )
+                        if (isPreviewMode) {
+                            Text(
+                                text = "Preview",
+                                color = Color.White.copy(alpha = 0.88f),
+                                fontSize = 10.sp,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 16.dp)
+                            )
+                        }
 
                         if (useScrollableTopLayout) {
                             CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
@@ -1048,8 +1278,7 @@ private fun NotesScreen(
             }
         }
 
-        val currentPage = pagerState.currentPage.coerceIn(0, notes.lastIndex)
-        val currentNoteId = notes[currentPage].id
+        val currentNoteId = notes[wrappedNoteIndex(pagerState.currentPage)].id
         val isInCollection = isNoteInCollection(currentNoteId)
         Text(
             text = if (isInCollection) "★" else "☆",
