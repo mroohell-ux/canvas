@@ -1101,22 +1101,38 @@ private fun NotesScreen(
                         }
                         .pointerInput(note.id, showTray) {
                             if (!showTray) {
+                                var lastEventTime = 0L
+                                var lastVelocityX = 0f
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = {
                                         isPreviewMode = true
                                         previewDragAccumulator = 0f
+                                        lastEventTime = 0L
+                                        lastVelocityX = 0f
                                     },
                                     onDragEnd = {
                                         isPreviewMode = false
                                         previewDragAccumulator = 0f
+                                        lastEventTime = 0L
+                                        lastVelocityX = 0f
                                     },
                                     onDragCancel = {
                                         isPreviewMode = false
                                         previewDragAccumulator = 0f
+                                        lastEventTime = 0L
+                                        lastVelocityX = 0f
                                     }
                                 ) { change, dragAmount ->
                                     change.consume()
-                                    previewDragAccumulator += dragAmount.x
+                                    val now = change.uptimeMillis
+                                    val deltaMs = if (lastEventTime == 0L) 16L else (now - lastEventTime).coerceAtLeast(1L)
+                                    val velocityX = dragAmount.x / deltaMs.toFloat() // px/ms
+                                    val accelerationX = (velocityX - lastVelocityX) / deltaMs.toFloat() // px/ms^2
+                                    val accelerationBoost = (1f + (kotlin.math.abs(accelerationX) * 350f)).coerceIn(1f, 5f)
+
+                                    previewDragAccumulator += dragAmount.x * accelerationBoost
+                                    lastEventTime = now
+                                    lastVelocityX = velocityX
 
                                     val steps = (kotlin.math.abs(previewDragAccumulator) / previewStepThresholdPx).toInt()
                                     if (steps > 0) {
