@@ -1048,7 +1048,7 @@ private fun NotesScreen(
                             if (steps > 0) {
                                 val direction = if (previewDragAccumulator < 0f) 1 else -1
                                 val targetPage = pagerState.currentPage + (direction * steps)
-                                scope.launch { pagerState.scrollToPage(targetPage) }
+                                scope.launch { pagerState.animateScrollToPage(targetPage) }
                                 previewDragAccumulator = if (previewDragAccumulator < 0f) {
                                     previewDragAccumulator + (previewStepThresholdPx * steps)
                                 } else {
