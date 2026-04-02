@@ -1,5 +1,6 @@
 package com.example.wearstickynotes
 
+import android.app.Activity
 import android.content.Context
 import android.view.InputDevice
 import android.view.MotionEvent
@@ -10,6 +11,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Animatable
@@ -253,6 +255,20 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         add(allNotesFlow)
         add(collectionsFlow)
         addAll(groupedFlows)
+    }
+
+    BackHandler {
+        when {
+            importState !is ImportState.Idle -> {
+                importState = ImportState.Idle
+            }
+            appScreen == AppScreen.Notes -> {
+                appScreen = AppScreen.CardFlows
+            }
+            else -> {
+                (context as? Activity)?.finish()
+            }
+        }
     }
 
     LaunchedEffect(flowBuckets, pendingRestoreFlowId) {
