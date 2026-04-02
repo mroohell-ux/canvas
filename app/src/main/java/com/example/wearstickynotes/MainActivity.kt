@@ -463,7 +463,6 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                             val current = noteSideState[noteId] ?: false
                             noteSideState[noteId] = !current
                         },
-                        onLongPressExit = { appScreen = AppScreen.CardFlows },
                         isCollectionsFlow = activeFlow?.id == (Long.MIN_VALUE + 1),
                         isNoteInCollection = { noteId -> collectionNoteState[noteId] == true },
                         onToggleCollection = { noteId ->
@@ -861,7 +860,6 @@ private fun NotesScreen(
     onSelectedIndexChange: (Int) -> Unit,
     isNoteBackVisible: (String) -> Boolean,
     onFlip: (String) -> Unit,
-    onLongPressExit: () -> Unit,
     isCollectionsFlow: Boolean,
     isNoteInCollection: (String) -> Boolean,
     onToggleCollection: (String) -> Unit,
@@ -942,15 +940,12 @@ private fun NotesScreen(
         if (notes.isEmpty()) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(flowName, isCollectionsFlow) {
-                        detectTapGestures(onLongPress = { onLongPressExit() })
-                    },
+                    .fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 if (isCollectionsFlow) {
                     Text(
-                        text = "Collections is empty Long press to return",
+                        text = "Collections is empty",
                         color = Color.White.copy(alpha = 0.92f),
                         textAlign = TextAlign.Center
                     )
@@ -1076,10 +1071,6 @@ private fun NotesScreen(
                         .background(noteRadialGradient(note))
                         .pointerInput(note.id, showTray) {
                             detectTapGestures(
-                                onLongPress = {
-                                    Log.d(DEBUG_TAG, "Input signal: longPress noteId=${note.id}, trayOpen=$showTray")
-                                    if (!showTray) onLongPressExit()
-                                },
                                 onTap = {
                                     Log.d(DEBUG_TAG, "Input signal: tap noteId=${note.id}, trayOpen=$showTray")
                                     if (!showTray) {
