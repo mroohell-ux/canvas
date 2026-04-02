@@ -29,6 +29,7 @@ import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -419,7 +420,17 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                                 flowLastOpenedNoteIndex.putIfAbsent(activeId, 0)
                                 appScreen = AppScreen.Notes
                             }
-                        }
+                        },
+                        onImportFromPhone = { startDiscovery() },
+                        shuffleMode = shuffleMode,
+                        onToggleShuffle = {
+                            if (!shuffleMode) {
+                                shuffleSeed = Random.nextInt()
+                            }
+                            shuffleMode = !shuffleMode
+                        },
+                        textScale = textScale,
+                        onTextScaleChange = { option -> textScale = option }
                     )
 
                     AppScreen.Notes -> NotesScreen(
@@ -552,17 +563,30 @@ private fun CardFlowsScreen(
     flows: List<CardFlow>,
     selectedIndex: Int,
     onSelectedIndexChange: (Int) -> Unit,
-    onOpenSelectedFlow: () -> Unit
+    onOpenSelectedFlow: () -> Unit,
+    onImportFromPhone: () -> Unit,
+    shuffleMode: Boolean,
+    onToggleShuffle: () -> Unit,
+    textScale: TextScaleOption,
+    onTextScaleChange: (TextScaleOption) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val dragOffset = remember { Animatable(0f) }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
+    var showTray by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
     val spacingPx = with(density) { (minScreenDp * 0.32f).coerceIn(70.dp, 110.dp).toPx() }
+    val bottomTrayEdgePx = with(density) { 56.dp.toPx() }
+    val swipeOpenThresholdPx = with(density) { 24.dp.toPx() }
+    val trayScrimAlpha by animateFloatAsState(
+        targetValue = if (showTray) 0.30f else 0f,
+        animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
+        label = "flowTrayScrimAlpha"
+    )
 
     LaunchedEffect(flows.size) {
         if (flows.isNotEmpty()) {
@@ -638,6 +662,25 @@ private fun CardFlowsScreen(
                         scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
                     }
                 )
+            }
+            .pointerInput(showTray) {
+                if (!showTray) {
+                    var startedFromBottom = false
+                    var cumulativeDrag = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { offset ->
+                            startedFromBottom = offset.y >= (size.height - bottomTrayEdgePx)
+                            cumulativeDrag = 0f
+                        },
+                        onVerticalDrag = { _, dragAmount ->
+                            if (!startedFromBottom) return@detectVerticalDragGestures
+                            cumulativeDrag += dragAmount
+                            if (cumulativeDrag <= -swipeOpenThresholdPx) {
+                                showTray = true
+                            }
+                        }
+                    )
+                }
             },
         contentAlignment = Alignment.Center
     ) {
@@ -691,6 +734,53 @@ private fun CardFlowsScreen(
                                 .zIndex(emphasisScale)
                                 .offset { IntOffset(targetOffset.roundToInt(), 0) }
                         )
+                    }
+                }
+            }
+        }
+
+        if (trayScrimAlpha > 0.001f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = trayScrimAlpha))
+                    .clickable { showTray = false }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showTray,
+            enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = 8.dp, end = 8.dp, bottom = 20.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xDD101418))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Button(onClick = {
+                    showTray = false
+                    onImportFromPhone()
+                }) { Text("Import notes") }
+
+                Button(onClick = onToggleShuffle) {
+                    Text(if (shuffleMode) "Shuffle: On" else "Shuffle: Off")
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextScaleOption.entries.forEach { option ->
+                        Button(
+                            onClick = { onTextScaleChange(option) },
+                            colors = if (textScale == option) ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2C6E49)
+                            ) else ButtonDefaults.buttonColors()
+                        ) { Text(option.label) }
                     }
                 }
             }
@@ -973,10 +1063,6 @@ private fun NotesScreen(
                                 onLongPress = {
                                     Log.d(DEBUG_TAG, "Input signal: longPress noteId=${note.id}, trayOpen=$showTray")
                                     if (!showTray) onLongPressExit()
-                                },
-                                onDoubleTap = {
-                                    Log.d(DEBUG_TAG, "Input signal: doubleTap noteId=${note.id}, togglingTrayTo=${!showTray}")
-                                    showTray = !showTray
                                 },
                                 onTap = {
                                     Log.d(DEBUG_TAG, "Input signal: tap noteId=${note.id}, trayOpen=$showTray")
