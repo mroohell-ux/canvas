@@ -14,7 +14,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
@@ -585,8 +584,7 @@ private fun CardFlowsScreen(
     textScale: TextScaleOption,
     onTextScaleChange: (TextScaleOption) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    val dragOffset = remember { Animatable(0f) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
     var showTray by remember { mutableStateOf(false) }
@@ -663,18 +661,18 @@ private fun CardFlowsScreen(
             .pointerInput(flows.size, selectedIndex) {
                 detectHorizontalDragGestures(
                     onHorizontalDrag = { _, amount ->
-                        scope.launch { dragOffset.snapTo(dragOffset.value + amount) }
+                        dragOffset += amount
                     },
                     onDragEnd = {
-                        val dragSteps = (dragOffset.value / spacingPx).roundToInt()
+                        val dragSteps = (dragOffset / spacingPx).roundToInt()
                         val targetIndex = (selectedIndex - dragSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
                         if (targetIndex != selectedIndex) {
                             onSelectedIndexChange(targetIndex)
                         }
-                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+                        dragOffset = 0f
                     },
                     onDragCancel = {
-                        scope.launch { dragOffset.animateTo(0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)) }
+                        dragOffset = 0f
                     }
                 )
             }
@@ -730,8 +728,8 @@ private fun CardFlowsScreen(
                 Box(modifier = Modifier.fillMaxWidth().height(railHeight), contentAlignment = Alignment.Center) {
                     flows.forEachIndexed { index, flow ->
                         val targetOffset by animateFloatAsState(
-                            targetValue = ((index - selectedIndex) * adaptiveSpacingPx) + dragOffset.value,
-                            animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
+                            targetValue = ((index - selectedIndex) * adaptiveSpacingPx) + dragOffset,
+                            animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
                             label = "flowOffset$index"
                         )
                         val emphasisScale = scaleFor(targetOffset)
