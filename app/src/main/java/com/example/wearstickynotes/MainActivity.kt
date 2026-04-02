@@ -87,9 +87,11 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -589,7 +591,9 @@ private fun CardFlowsScreen(
     var rotaryAccumulator by remember { mutableFloatStateOf(0f) }
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
     var showTray by remember { mutableStateOf(false) }
+    var lastHapticFlowIndex by remember { mutableIntStateOf(selectedIndex) }
     val focusRequester = remember { FocusRequester() }
+    val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
@@ -605,6 +609,13 @@ private fun CardFlowsScreen(
     LaunchedEffect(flows.size) {
         if (flows.isNotEmpty()) {
             focusRequester.requestFocus()
+        }
+    }
+
+    LaunchedEffect(selectedIndex) {
+        if (selectedIndex != lastHapticFlowIndex) {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            lastHapticFlowIndex = selectedIndex
         }
     }
 
@@ -886,9 +897,11 @@ private fun NotesScreen(
     var isPreviewMode by remember { mutableStateOf(false) }
     var previewDragAccumulator by remember { mutableFloatStateOf(0f) }
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
+    var lastHapticNoteIndex by remember { mutableIntStateOf(selectedIndex) }
     val noteScrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
     val initialVirtualPage = remember(notes.size, selectedIndex) {
         if (notes.isEmpty()) {
             0
@@ -998,8 +1011,13 @@ private fun NotesScreen(
             snapshotFlow { pagerState.settledPage }
                 .collect { page ->
                     if (notes.isNotEmpty()) {
-                        Log.d(DEBUG_TAG, "Notes pager settled page changed to $page (total=${notes.size})")
-                        onSelectedIndexChange(wrappedNoteIndex(page))
+                        val wrappedIndex = wrappedNoteIndex(page)
+                        Log.d(DEBUG_TAG, "Notes pager settled page changed to $page (wrapped=$wrappedIndex total=${notes.size})")
+                        onSelectedIndexChange(wrappedIndex)
+                        if (wrappedIndex != lastHapticNoteIndex) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            lastHapticNoteIndex = wrappedIndex
+                        }
                     }
                 }
         }
