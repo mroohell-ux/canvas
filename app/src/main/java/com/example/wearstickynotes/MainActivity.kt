@@ -30,6 +30,7 @@ import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -882,6 +883,8 @@ private fun NotesScreen(
     }
 
     var showTray by remember { mutableStateOf(false) }
+    var isPreviewMode by remember { mutableStateOf(false) }
+    var previewDragAccumulator by remember { mutableFloatStateOf(0f) }
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
     val noteScrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
@@ -948,6 +951,7 @@ private fun NotesScreen(
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
         label = "trayScrimAlpha"
     )
+    val previewStepThresholdPx = with(LocalDensity.current) { 18.dp.toPx() }
 
     LaunchedEffect(notes.size, showTray) {
         if (!showTray && notes.isNotEmpty()) {
@@ -1094,6 +1098,39 @@ private fun NotesScreen(
                                     }
                                 }
                             )
+                        }
+                        .pointerInput(note.id, showTray) {
+                            if (!showTray) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        isPreviewMode = true
+                                        previewDragAccumulator = 0f
+                                    },
+                                    onDragEnd = {
+                                        isPreviewMode = false
+                                        previewDragAccumulator = 0f
+                                    },
+                                    onDragCancel = {
+                                        isPreviewMode = false
+                                        previewDragAccumulator = 0f
+                                    }
+                                ) { change, dragAmount ->
+                                    change.consume()
+                                    previewDragAccumulator += dragAmount.x
+
+                                    val steps = (kotlin.math.abs(previewDragAccumulator) / previewStepThresholdPx).toInt()
+                                    if (steps > 0) {
+                                        val direction = if (previewDragAccumulator < 0f) 1 else -1
+                                        val targetPage = pagerState.currentPage + (direction * steps)
+                                        scope.launch { pagerState.scrollToPage(targetPage) }
+                                        previewDragAccumulator = if (previewDragAccumulator < 0f) {
+                                            previewDragAccumulator + (previewStepThresholdPx * steps)
+                                        } else {
+                                            previewDragAccumulator - (previewStepThresholdPx * steps)
+                                        }
+                                    }
+                                }
+                            }
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -1153,6 +1190,16 @@ private fun NotesScreen(
                                 .align(Alignment.TopCenter)
                                 .padding(top = 2.dp)
                         )
+                        if (isPreviewMode) {
+                            Text(
+                                text = "Preview",
+                                color = Color.White.copy(alpha = 0.88f),
+                                fontSize = 10.sp,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 16.dp)
+                            )
+                        }
 
                         if (useScrollableTopLayout) {
                             CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
