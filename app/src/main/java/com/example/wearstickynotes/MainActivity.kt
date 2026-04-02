@@ -268,7 +268,11 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                 appScreen = AppScreen.CardFlows
             }
             else -> {
-                (context as? Activity)?.finish()
+                (context as? Activity)?.let { activity ->
+                    Log.d(DEBUG_TAG, "Back: exiting task from flow level")
+                    activity.finishAffinity()
+                    activity.finish()
+                }
             }
         }
     }
