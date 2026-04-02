@@ -5,8 +5,8 @@ Tiny Wear OS Jetpack Compose demo app to validate whether Samsung digital bezel 
 ## What this app contains
 
 - One screen only.
-- A standard `LazyColumn` with 20 dummy text rows (`Item 1` ... `Item 20`).
-- No custom visuals.
+- A standard `LazyColumn` with 20 dummy chat rows styled like the requested mockup.
+- A simple circular watch-like container and a bottom `+` button.
 - Verbose logs for:
   - Focus changes on the list container.
   - `onRotaryScrollEvent` in Compose.
@@ -32,11 +32,12 @@ RotaryDemo
 
 ## What success looks like
 
-You should rotate the bezel/crown and see at least one of these logs:
+Rotate the bezel/crown and confirm:
 
-- `onRotaryScrollEvent: ...`
-- `Activity dispatchGenericMotionEvent ACTION_SCROLL: ... fromRotary=true`
-- `pointerInteropFilter ACTION_SCROLL: ...`
+- List moves up/down.
+- Logcat contains at least one of:
+  - `onRotaryScrollEvent: ...`
+  - `Activity dispatchGenericMotionEvent ACTION_SCROLL: ... fromRotary=true`
+  - `pointerInteropFilter ACTION_SCROLL: ...`
 
-If these appear and the list scrolls, your watch is delivering usable rotary/bezel input to the app.
-If this demo works but your real app does not, the blocker is likely your app's focus/input handling or custom UI structure.
+If this demo works but your real app does not, your app's custom focus/input wiring is likely the blocker.
