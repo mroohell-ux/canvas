@@ -869,14 +869,37 @@ private fun NotesScreen(
     textScale: TextScaleOption,
     onTextScaleChange: (TextScaleOption) -> Unit
 ) {
+    fun wrappedNoteIndex(page: Int): Int {
+        if (notes.isEmpty()) return 0
+        val size = notes.size
+        return ((page % size) + size) % size
+    }
+
+    fun nearestVirtualPage(currentPage: Int, targetIndex: Int): Int {
+        if (notes.isEmpty()) return 0
+        val size = notes.size
+        val base = currentPage - wrappedNoteIndex(currentPage)
+        val candidates = listOf(base + targetIndex, base + targetIndex + size, base + targetIndex - size)
+        return candidates.minBy { kotlin.math.abs(it - currentPage) }
+    }
+
     var showTray by remember { mutableStateOf(false) }
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
     val noteScrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
+    val initialVirtualPage = remember(notes.size, selectedIndex) {
+        if (notes.isEmpty()) {
+            0
+        } else {
+            val half = Int.MAX_VALUE / 2
+            val centered = half - wrappedNoteIndex(half)
+            centered + selectedIndex.coerceIn(0, notes.lastIndex)
+        }
+    }
     val pagerState = rememberPagerState(
-        initialPage = selectedIndex.coerceAtLeast(0),
-        pageCount = { notes.size }
+        initialPage = initialVirtualPage,
+        pageCount = { if (notes.isEmpty()) 0 else Int.MAX_VALUE }
     )
     val swipeAccelerationConnection = remember(pagerState, notes.size) {
         object : NestedScrollConnection {
@@ -893,7 +916,7 @@ private fun NotesScreen(
                 // Preserve the page user already dragged toward and only add
                 // EXTRA pages for stronger flicks, so release result matches
                 // what user saw right before lifting finger.
-                val baseTargetPage = pagerState.targetPage.coerceIn(0, notes.lastIndex)
+                val baseTargetPage = pagerState.targetPage
                 val extraPagesByVelocity = when {
                     absoluteVelocity >= SWIPE_ACCEL_VELOCITY_4_PAGES -> 3
                     absoluteVelocity >= SWIPE_ACCEL_VELOCITY_3_PAGES -> 2
@@ -902,8 +925,7 @@ private fun NotesScreen(
                 }
 
                 val direction = if (velocityX < 0f) 1 else -1
-                val targetPage = (baseTargetPage + (extraPagesByVelocity * direction))
-                    .coerceIn(0, notes.lastIndex)
+                val targetPage = baseTargetPage + (extraPagesByVelocity * direction)
                 val pagesSkipped = kotlin.math.abs(targetPage - pagerState.currentPage)
 
                 if (targetPage != baseTargetPage && pagesSkipped <= SWIPE_MAX_PAGES_PER_FLING) {
@@ -958,7 +980,10 @@ private fun NotesScreen(
 
         LaunchedEffect(notes, selectedIndex) {
             if (notes.isNotEmpty()) {
-                val targetPage = selectedIndex.coerceIn(0, notes.lastIndex)
+                val targetPage = nearestVirtualPage(
+                    currentPage = pagerState.currentPage,
+                    targetIndex = selectedIndex.coerceIn(0, notes.lastIndex)
+                )
                 if (targetPage != pagerState.currentPage) {
                     pagerState.scrollToPage(targetPage)
                 }
@@ -972,7 +997,7 @@ private fun NotesScreen(
                 .collect { page ->
                     if (notes.isNotEmpty()) {
                         Log.d(DEBUG_TAG, "Notes pager settled page changed to $page (total=${notes.size})")
-                        onSelectedIndexChange(page.coerceIn(0, notes.lastIndex))
+                        onSelectedIndexChange(wrappedNoteIndex(page))
                     }
                 }
         }
@@ -996,10 +1021,8 @@ private fun NotesScreen(
 
                         var updated = genericScrollAccumulator + dominant
                         if (updated >= GENERIC_SCROLL_PAGE_THRESHOLD) {
-                            val previous = (pagerState.currentPage - 1).coerceAtLeast(0)
-                            if (previous != pagerState.currentPage) {
-                                scope.launch { pagerState.animateScrollToPage(previous) }
-                            }
+                            val previous = pagerState.currentPage - 1
+                            scope.launch { pagerState.animateScrollToPage(previous) }
                             onRotaryAccumulatorChange(0f)
                             updated = 0f
                             genericScrollAccumulator = updated
@@ -1007,10 +1030,8 @@ private fun NotesScreen(
                         }
 
                         if (updated <= -GENERIC_SCROLL_PAGE_THRESHOLD) {
-                            val next = (pagerState.currentPage + 1).coerceAtMost(notes.lastIndex)
-                            if (next != pagerState.currentPage) {
-                                scope.launch { pagerState.animateScrollToPage(next) }
-                            }
+                            val next = pagerState.currentPage + 1
+                            scope.launch { pagerState.animateScrollToPage(next) }
                             onRotaryAccumulatorChange(0f)
                             updated = 0f
                             genericScrollAccumulator = updated
@@ -1029,18 +1050,14 @@ private fun NotesScreen(
                     var updated = rotaryAccumulator + it.verticalScrollPixels
                     when {
                         updated > 25f -> {
-                            val next = (pagerState.currentPage + 1).coerceAtMost(notes.lastIndex)
-                            if (next != pagerState.currentPage) {
-                                scope.launch { pagerState.animateScrollToPage(next) }
-                            }
+                            val next = pagerState.currentPage + 1
+                            scope.launch { pagerState.animateScrollToPage(next) }
                             updated = 0f
                         }
 
                         updated < -25f -> {
-                            val previous = (pagerState.currentPage - 1).coerceAtLeast(0)
-                            if (previous != pagerState.currentPage) {
-                                scope.launch { pagerState.animateScrollToPage(previous) }
-                            }
+                            val previous = pagerState.currentPage - 1
+                            scope.launch { pagerState.animateScrollToPage(previous) }
                             updated = 0f
                         }
                     }
@@ -1055,7 +1072,8 @@ private fun NotesScreen(
                     .fillMaxSize()
                     .nestedScroll(swipeAccelerationConnection)
             ) { page ->
-                val note = notes[page]
+                val pageNoteIndex = wrappedNoteIndex(page)
+                val note = notes[pageNoteIndex]
                 val showBack = isNoteBackVisible(note.id)
                 val text = if (showBack) note.back.text else note.front.text
                 val label = if (showBack) note.back.label else note.front.label
@@ -1129,7 +1147,7 @@ private fun NotesScreen(
                         val effectiveLineHeight = effectiveFontSize * 1.2
                         val useScrollableTopLayout = needsScroll
                         Text(
-                            text = "$flowName • ${page + 1}/${notes.size} • ${label}",
+                            text = "$flowName • ${pageNoteIndex + 1}/${notes.size} • ${label}",
                             fontSize = 12.sp,
                             color = Color.White.copy(alpha = 0.86f),
                             textAlign = TextAlign.Center,
@@ -1181,8 +1199,7 @@ private fun NotesScreen(
             }
         }
 
-        val currentPage = pagerState.currentPage.coerceIn(0, notes.lastIndex)
-        val currentNoteId = notes[currentPage].id
+        val currentNoteId = notes[wrappedNoteIndex(pagerState.currentPage)].id
         val isInCollection = isNoteInCollection(currentNoteId)
         Text(
             text = if (isInCollection) "★" else "☆",
