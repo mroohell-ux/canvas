@@ -388,7 +388,12 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                 Toast.makeText(context, "Imported ${imported.size} notes", Toast.LENGTH_SHORT).show()
             }.onFailure {
                 Log.e(DEBUG_TAG, "Import: import failed from ${target.host}:${target.port}", it)
-                importState = ImportState.Failed(it.message ?: "Unknown error")
+                val message = it.message.orEmpty()
+                importState = if (message.contains("CLEARTEXT communication", ignoreCase = true)) {
+                    ImportState.Failed("Cleartext HTTP blocked; verify app cleartext setting and retry import.")
+                } else {
+                    ImportState.Failed(message.ifBlank { "Unknown error" })
+                }
             }
         }
     }
