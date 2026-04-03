@@ -166,9 +166,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         mutableStateListOf<StickyNote>().apply { addAll(initialNotes) }
     }
 
-    val initialAppScreen = remember(prefs) {
-        if (prefs.getBoolean("last_screen_notes", false)) AppScreen.Notes else AppScreen.CardFlows
-    }
+    val initialAppScreen = AppScreen.CardFlows
     val initialSelectedFlowId = remember(prefs) {
         if (prefs.contains("last_selected_flow_id")) prefs.getLong("last_selected_flow_id", Long.MIN_VALUE) else null
     }
@@ -323,12 +321,6 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
         val asStorageMap = flowLastOpenedNoteIndex.mapKeys { it.key.toString() }
         prefs.edit()
             .putString("flow_last_opened_note_index", storageJson.encodeToString(asStorageMap))
-            .apply()
-    }
-
-    LaunchedEffect(appScreen) {
-        prefs.edit()
-            .putBoolean("last_screen_notes", appScreen == AppScreen.Notes)
             .apply()
     }
 
