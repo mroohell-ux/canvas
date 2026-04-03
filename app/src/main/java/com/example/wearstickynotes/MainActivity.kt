@@ -110,8 +110,17 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -391,6 +400,8 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                 val message = it.message.orEmpty()
                 importState = if (message.contains("CLEARTEXT communication", ignoreCase = true)) {
                     ImportState.Failed("Cleartext HTTP blocked; verify app cleartext setting and retry import.")
+                } else if (it is SerializationException) {
+                    ImportState.Failed("Import payload format is invalid. Please update phone/watch app versions and retry.")
                 } else {
                     ImportState.Failed(message.ifBlank { "Unknown error" })
                 }
@@ -1888,6 +1899,7 @@ private data class StickyNotesFile(
 
 @Serializable
 private data class StickyNote(
+    @Serializable(with = StringOrLongSerializer::class)
     val id: String,
     val flowId: Long,
     val flowName: String,
@@ -1898,6 +1910,32 @@ private data class StickyNote(
     val front: NoteSide,
     val back: NoteSide
 )
+
+private object StringOrLongSerializer : KSerializer<String> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("StringOrLong", PrimitiveKind.STRING)
+
+    override fun deserialize(decoder: Decoder): String {
+        if (decoder is JsonDecoder) {
+            return when (val element = decoder.decodeJsonElement()) {
+                is JsonPrimitive -> {
+                    if (element.isString) {
+                        element.content
+                    } else {
+                        element.longOrNull?.toString() ?: element.content
+                    }
+                }
+
+                else -> element.toString()
+            }
+        }
+        return decoder.decodeString()
+    }
+
+    override fun serialize(encoder: Encoder, value: String) {
+        encoder.encodeString(value)
+    }
+}
 
 @Serializable
 private data class NoteSide(
