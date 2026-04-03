@@ -634,7 +634,7 @@ private fun CardFlowsScreen(
 
     LaunchedEffect(selectedIndex) {
         if (selectedIndex != lastHapticFlowIndex) {
-            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             lastHapticFlowIndex = selectedIndex
         }
         dragHapticAnchorIndex = selectedIndex
@@ -706,7 +706,7 @@ private fun CardFlowsScreen(
                             var stepIndex = dragHapticAnchorIndex
                             while (stepIndex != previewIndex) {
                                 stepIndex += direction
-                                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             }
                             lastHapticFlowIndex = previewIndex
                             dragHapticAnchorIndex = previewIndex
@@ -1050,7 +1050,7 @@ private fun NotesScreen(
                     if (notes.isNotEmpty()) {
                         val wrappedIndex = wrappedNoteIndex(page)
                         if (wrappedIndex != lastHapticNoteIndex) {
-                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             lastHapticNoteIndex = wrappedIndex
                         }
                     }
