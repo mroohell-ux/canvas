@@ -1922,7 +1922,7 @@ private object StringOrLongSerializer : KSerializer<String> {
                     if (element.isString) {
                         element.content
                     } else {
-                        element.longOrNull?.toString() ?: element.content
+                        element.content.toLongOrNull()?.toString() ?: element.content
                     }
                 }
 
