@@ -1279,10 +1279,12 @@ private fun NotesScreen(
                         val needsScroll = !fitsOnSingleScreen(effectiveFontSize)
                         val effectiveLineHeight = effectiveFontSize * 1.2
                         val useScrollableTopLayout = needsScroll
+                        val noteHeaderTextColor = Color(0xFFEAF2FF)
+                        val noteBodyTextColor = Color(0xFFF2F6FB)
                         Text(
                             text = "$flowName • ${pageNoteIndex + 1}/${notes.size} • ${label}",
                             fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.86f),
+                            color = noteHeaderTextColor.copy(alpha = 0.78f),
                             textAlign = TextAlign.Center,
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
@@ -1291,7 +1293,7 @@ private fun NotesScreen(
                         if (isPreviewMode) {
                             Text(
                                 text = "Preview",
-                                color = Color.White.copy(alpha = 0.88f),
+                                color = noteHeaderTextColor.copy(alpha = 0.82f),
                                 fontSize = 10.sp,
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
@@ -1311,7 +1313,7 @@ private fun NotesScreen(
                                 ) {
                                     Text(
                                         text = text,
-                                        color = Color.White,
+                                        color = noteBodyTextColor,
                                         fontSize = effectiveFontSize,
                                         lineHeight = effectiveLineHeight,
                                         textAlign = TextAlign.Center,
@@ -1329,7 +1331,7 @@ private fun NotesScreen(
                             ) {
                                 Text(
                                     text = text,
-                                    color = Color.White,
+                                    color = noteBodyTextColor,
                                     fontSize = effectiveFontSize,
                                     lineHeight = effectiveLineHeight,
                                     textAlign = TextAlign.Center,
@@ -1847,18 +1849,18 @@ private fun noteRadialGradient(note: StickyNote): Brush {
     // Calm system-card styling: broad soft center + deep edge vignette.
     val center = hsvColor(
         hue = hue,
-        saturation = (hsv[1] * 0.68f + 0.10f).coerceIn(0.22f, 0.55f),
-        value = (hsv[2] * 0.86f + 0.04f).coerceIn(0.62f, 0.86f)
+        saturation = (hsv[1] * 0.90f + 0.18f).coerceIn(0.35f, 0.72f),
+        value = (hsv[2] * 0.72f + 0.02f).coerceIn(0.50f, 0.74f)
     )
     val mid = hsvColor(
         hue = hue,
-        saturation = (hsv[1] * 0.72f + 0.12f).coerceIn(0.26f, 0.58f),
-        value = (hsv[2] * 0.58f).coerceIn(0.42f, 0.62f)
+        saturation = (hsv[1] * 0.96f + 0.20f).coerceIn(0.40f, 0.78f),
+        value = (hsv[2] * 0.50f).coerceIn(0.30f, 0.52f)
     )
     val edge = hsvColor(
         hue = hue,
-        saturation = (hsv[1] * 0.80f + 0.14f).coerceIn(0.30f, 0.64f),
-        value = (hsv[2] * 0.34f).coerceIn(0.24f, 0.42f)
+        saturation = (hsv[1] * 1.02f + 0.24f).coerceIn(0.46f, 0.84f),
+        value = (hsv[2] * 0.28f).coerceIn(0.16f, 0.34f)
     )
 
     return Brush.radialGradient(
