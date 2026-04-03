@@ -1847,15 +1847,16 @@ private fun noteRadialGradient(note: StickyNote): Brush {
     val hue = (hsv[0] + hueShift + 360f) % 360f
 
     // Calm system-card styling: broad soft center + deep edge vignette.
+    val centerValue = (hsv[2] * 0.50f).coerceIn(0.30f, 0.52f)
     val center = hsvColor(
         hue = hue,
         saturation = (hsv[1] * 0.90f + 0.18f).coerceIn(0.35f, 0.72f),
-        value = (hsv[2] * 0.72f + 0.02f).coerceIn(0.50f, 0.74f)
+        value = centerValue
     )
     val mid = hsvColor(
         hue = hue,
         saturation = (hsv[1] * 0.96f + 0.20f).coerceIn(0.40f, 0.78f),
-        value = (hsv[2] * 0.50f).coerceIn(0.30f, 0.52f)
+        value = centerValue
     )
     val edge = hsvColor(
         hue = hue,
