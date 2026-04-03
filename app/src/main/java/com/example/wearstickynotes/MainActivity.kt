@@ -110,8 +110,17 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -268,7 +277,11 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                 appScreen = AppScreen.CardFlows
             }
             else -> {
-                (context as? Activity)?.finish()
+                (context as? Activity)?.let { activity ->
+                    Log.d(DEBUG_TAG, "Back: exiting task from flow level")
+                    activity.finishAffinity()
+                    activity.finish()
+                }
             }
         }
     }
@@ -337,7 +350,9 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     }
 
     fun onImported(imported: List<StickyNote>) {
+        Log.d(DEBUG_TAG, "Import: onImported received ${imported.size} notes")
         val organized = organizeImportedNotes(imported)
+        Log.d(DEBUG_TAG, "Import: organized into ${organized.size} notes across ${organized.groupBy { it.flowId }.size} flows")
         notes.clear()
         notes.addAll(organized)
         noteSideState.clear()
@@ -350,8 +365,10 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
     fun startDiscovery() {
         scope.launch {
+            Log.d(DEBUG_TAG, "Import: starting service discovery")
             importState = ImportState.Searching
             val found = importer.discoverServices(timeoutMs = 8_000)
+            Log.d(DEBUG_TAG, "Import: discovery completed with ${found.size} services")
             services = found
             importState = ImportState.DeviceList(found)
         }
@@ -359,19 +376,35 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
     fun runImport(target: ConnectionTarget) {
         scope.launch {
+            Log.d(DEBUG_TAG, "Import: starting import from ${target.host}:${target.port}")
             importState = ImportState.RequestingApproval(target)
             val result = importer.importFromTarget(
                 target = target,
                 clientName = "Wear ${android.os.Build.MODEL}",
-                onWaiting = { importState = ImportState.Waiting },
-                onDownloading = { importState = ImportState.Downloading }
+                onWaiting = {
+                    Log.d(DEBUG_TAG, "Import: waiting for phone approval")
+                    importState = ImportState.Waiting
+                },
+                onDownloading = {
+                    Log.d(DEBUG_TAG, "Import: approval granted, downloading export payload")
+                    importState = ImportState.Downloading
+                }
             )
 
             result.onSuccess { imported ->
+                Log.d(DEBUG_TAG, "Import: import completed successfully with ${imported.size} notes")
                 onImported(imported)
                 Toast.makeText(context, "Imported ${imported.size} notes", Toast.LENGTH_SHORT).show()
             }.onFailure {
-                importState = ImportState.Failed(it.message ?: "Unknown error")
+                Log.e(DEBUG_TAG, "Import: import failed from ${target.host}:${target.port}", it)
+                val message = it.message.orEmpty()
+                importState = if (message.contains("CLEARTEXT communication", ignoreCase = true)) {
+                    ImportState.Failed("Cleartext HTTP blocked; verify app cleartext setting and retry import.")
+                } else if (it is SerializationException) {
+                    ImportState.Failed("Import payload format is invalid. Please update phone/watch app versions and retry.")
+                } else {
+                    ImportState.Failed(message.ifBlank { "Unknown error" })
+                }
             }
         }
     }
@@ -394,8 +427,10 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                 onManualConnect = {
                     val parsed = parseManualAddress(manualAddress)
                     if (parsed == null) {
+                        Log.w(DEBUG_TAG, "Import: manual address parse failed for input='$manualAddress'")
                         importState = ImportState.Failed("Use format IP:port")
                     } else {
+                        Log.d(DEBUG_TAG, "Import: manual address parsed host=${parsed.host} port=${parsed.port}")
                         runImport(parsed)
                     }
                 },
@@ -592,6 +627,7 @@ private fun CardFlowsScreen(
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
     var showTray by remember { mutableStateOf(false) }
     var lastHapticFlowIndex by remember { mutableIntStateOf(selectedIndex) }
+    var dragHapticAnchorIndex by remember { mutableIntStateOf(selectedIndex) }
     val focusRequester = remember { FocusRequester() }
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -617,6 +653,7 @@ private fun CardFlowsScreen(
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             lastHapticFlowIndex = selectedIndex
         }
+        dragHapticAnchorIndex = selectedIndex
     }
 
     Box(
@@ -672,8 +709,24 @@ private fun CardFlowsScreen(
             }
             .pointerInput(flows.size, selectedIndex) {
                 detectHorizontalDragGestures(
+                    onDragStart = {
+                        dragOffset = 0f
+                        dragHapticAnchorIndex = selectedIndex
+                    },
                     onHorizontalDrag = { _, amount ->
                         dragOffset += amount
+                        val dragSteps = (dragOffset / spacingPx).roundToInt()
+                        val previewIndex = (selectedIndex - dragSteps).coerceIn(0, flows.lastIndex.coerceAtLeast(0))
+                        if (previewIndex != dragHapticAnchorIndex) {
+                            val direction = if (previewIndex > dragHapticAnchorIndex) 1 else -1
+                            var stepIndex = dragHapticAnchorIndex
+                            while (stepIndex != previewIndex) {
+                                stepIndex += direction
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                            lastHapticFlowIndex = previewIndex
+                            dragHapticAnchorIndex = previewIndex
+                        }
                     },
                     onDragEnd = {
                         val dragSteps = (dragOffset / spacingPx).roundToInt()
@@ -681,9 +734,11 @@ private fun CardFlowsScreen(
                         if (targetIndex != selectedIndex) {
                             onSelectedIndexChange(targetIndex)
                         }
+                        dragHapticAnchorIndex = targetIndex
                         dragOffset = 0f
                     },
                     onDragCancel = {
+                        dragHapticAnchorIndex = selectedIndex
                         dragOffset = 0f
                     }
                 )
@@ -1006,6 +1061,19 @@ private fun NotesScreen(
         }
 
         LaunchedEffect(pagerState, notes.size) {
+            snapshotFlow { pagerState.currentPage }
+                .collect { page ->
+                    if (notes.isNotEmpty()) {
+                        val wrappedIndex = wrappedNoteIndex(page)
+                        if (wrappedIndex != lastHapticNoteIndex) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            lastHapticNoteIndex = wrappedIndex
+                        }
+                    }
+                }
+        }
+
+        LaunchedEffect(pagerState, notes.size) {
             // Use settledPage so parent-selected note updates only after user
             // releases and pager settles, preventing mid-drag content/color jumps.
             snapshotFlow { pagerState.settledPage }
@@ -1014,10 +1082,6 @@ private fun NotesScreen(
                         val wrappedIndex = wrappedNoteIndex(page)
                         Log.d(DEBUG_TAG, "Notes pager settled page changed to $page (wrapped=$wrappedIndex total=${notes.size})")
                         onSelectedIndexChange(wrappedIndex)
-                        if (wrappedIndex != lastHapticNoteIndex) {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            lastHapticNoteIndex = wrappedIndex
-                        }
                     }
                 }
         }
@@ -1394,19 +1458,26 @@ private class PhoneImportClient(context: Context) {
     private val client = OkHttpClient.Builder().build()
 
     suspend fun discoverServices(timeoutMs: Long): List<DiscoveredService> = withContext(Dispatchers.IO) {
+        Log.d(DEBUG_TAG, "Import: discoverServices called timeoutMs=$timeoutMs")
         val found = ConcurrentHashMap<String, DiscoveredService>()
         val listener = object : NsdManager.DiscoveryListener {
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
-            override fun onDiscoveryStarted(serviceType: String) = Unit
-            override fun onDiscoveryStopped(serviceType: String) = Unit
+            override fun onDiscoveryStarted(serviceType: String) {
+                Log.d(DEBUG_TAG, "Import: NSD discovery started type=$serviceType")
+            }
+            override fun onDiscoveryStopped(serviceType: String) {
+                Log.d(DEBUG_TAG, "Import: NSD discovery stopped type=$serviceType")
+            }
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
+                Log.d(DEBUG_TAG, "Import: NSD service found name=${serviceInfo.serviceName} type=${serviceInfo.serviceType}")
                 if (serviceInfo.serviceType != "_timescape._tcp.") return
                 Thread {
                     runCatching {
                         kotlinx.coroutines.runBlocking {
                             resolve(serviceInfo)?.let { resolved ->
+                                Log.d(DEBUG_TAG, "Import: NSD service resolved host=${resolved.host} port=${resolved.port}")
                                 found["${resolved.host}:${resolved.port}"] = resolved
                             }
                         }
@@ -1423,6 +1494,7 @@ private class PhoneImportClient(context: Context) {
         }
 
         runCatching { nsdManager.stopServiceDiscovery(listener) }
+        Log.d(DEBUG_TAG, "Import: discoverServices returning ${found.size} services")
         found.values.sortedBy { it.displayName }
     }
 
@@ -1430,12 +1502,14 @@ private class PhoneImportClient(context: Context) {
         suspendCancellableCoroutine { cont ->
             val listener = object : NsdManager.ResolveListener {
                 override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                    Log.w(DEBUG_TAG, "Import: NSD resolve failed name=${serviceInfo.serviceName} code=$errorCode")
                     if (cont.isActive) cont.resume(null)
                 }
 
                 override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
                     if (!cont.isActive) return
                     val host = serviceInfo.host?.hostAddress ?: return cont.resume(null)
+                    Log.d(DEBUG_TAG, "Import: NSD resolve success name=${serviceInfo.serviceName} host=$host port=${serviceInfo.port}")
                     cont.resume(
                         DiscoveredService(
                             displayName = serviceInfo.serviceName ?: host,
@@ -1456,22 +1530,28 @@ private class PhoneImportClient(context: Context) {
     ): Result<List<StickyNote>> = withContext(Dispatchers.IO) {
         runCatching {
             val base = "http://${target.host}:${target.port}"
+            Log.d(DEBUG_TAG, "Import: importFromTarget base=$base clientName=$clientName")
 
             // Optional, ignore failures
             runCatching {
                 val metaRequest = Request.Builder().url("$base/meta").get().build()
+                Log.d(DEBUG_TAG, "Import: requesting $base/meta")
                 client.newCall(metaRequest).execute().close()
             }
 
             val sessionId = requestSession(base, clientName)
+            Log.d(DEBUG_TAG, "Import: session request completed sessionId=$sessionId")
             onWaiting()
             val token = pollSession(base, sessionId)
+            Log.d(DEBUG_TAG, "Import: session approved tokenReceived=${token.isNotBlank()}")
             onDownloading()
             val exportRequest = Request.Builder().url("$base/export?token=$token").get().build()
+            Log.d(DEBUG_TAG, "Import: downloading export from $base/export")
             val payload = client.newCall(exportRequest).execute().use { response ->
                 if (!response.isSuccessful) error("Export failed (${response.code})")
                 response.body?.string().orEmpty()
             }
+            Log.d(DEBUG_TAG, "Import: export payload size=${payload.length}")
             json.decodeFromString<StickyNotesFile>(payload).stickyNotes
         }
     }
@@ -1485,10 +1565,12 @@ private class PhoneImportClient(context: Context) {
         ).toRequestBody("application/json".toMediaType())
 
         val req = Request.Builder().url("$base/session/request").post(body).build()
+        Log.d(DEBUG_TAG, "Import: POST $base/session/request")
         val res = client.newCall(req).execute().use { response ->
             if (!response.isSuccessful) error("Session request failed (${response.code})")
             response.body?.string().orEmpty()
         }
+        Log.d(DEBUG_TAG, "Import: session request response bytes=${res.length}")
         return json.decodeFromString<SessionRequestResponse>(res).sessionId
     }
 
@@ -1502,6 +1584,7 @@ private class PhoneImportClient(context: Context) {
                 response.body?.string().orEmpty()
             }
             val status = json.decodeFromString<SessionStatusResponse>(body)
+            Log.d(DEBUG_TAG, "Import: pollSession status=${status.status} sessionId=$sessionId")
             when (status.status.uppercase()) {
                 "APPROVED" -> return status.token ?: error("Missing token")
                 "DENIED" -> error("Denied on phone")
@@ -1816,6 +1899,7 @@ private data class StickyNotesFile(
 
 @Serializable
 private data class StickyNote(
+    @Serializable(with = StringOrLongSerializer::class)
     val id: String,
     val flowId: Long,
     val flowName: String,
@@ -1826,6 +1910,32 @@ private data class StickyNote(
     val front: NoteSide,
     val back: NoteSide
 )
+
+private object StringOrLongSerializer : KSerializer<String> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("StringOrLong", PrimitiveKind.STRING)
+
+    override fun deserialize(decoder: Decoder): String {
+        if (decoder is JsonDecoder) {
+            return when (val element = decoder.decodeJsonElement()) {
+                is JsonPrimitive -> {
+                    if (element.isString) {
+                        element.content
+                    } else {
+                        element.content.toLongOrNull()?.toString() ?: element.content
+                    }
+                }
+
+                else -> element.toString()
+            }
+        }
+        return decoder.decodeString()
+    }
+
+    override fun serialize(encoder: Encoder, value: String) {
+        encoder.encodeString(value)
+    }
+}
 
 @Serializable
 private data class NoteSide(
