@@ -1019,7 +1019,9 @@ private fun NotesScreen(
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
         label = "trayScrimAlpha"
     )
-    val previewStepThresholdPx = with(LocalDensity.current) { 18.dp.toPx() }
+    // Keep preview scrubbing responsive so slight horizontal movement (including
+    // curved/edge drags on round screens) can still advance notes.
+    val previewStepThresholdPx = with(LocalDensity.current) { 4.dp.toPx() }
 
     LaunchedEffect(notes.size, showTray) {
         if (!showTray && notes.isNotEmpty()) {
