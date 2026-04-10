@@ -1071,7 +1071,7 @@ private fun NotesScreen(
                     if (notes.isNotEmpty()) {
                         val wrappedIndex = wrappedNoteIndex(page)
                         if (wrappedIndex != lastHapticNoteIndex) {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             lastHapticNoteIndex = wrappedIndex
                         }
                     }
