@@ -1019,7 +1019,9 @@ private fun NotesScreen(
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
         label = "trayScrimAlpha"
     )
-    val previewStepThresholdPx = with(LocalDensity.current) { 18.dp.toPx() }
+    // Keep preview scrubbing responsive so slight horizontal movement (including
+    // curved/edge drags on round screens) can still advance notes.
+    val previewStepThresholdPx = with(LocalDensity.current) { 4.dp.toPx() }
 
     LaunchedEffect(notes.size, showTray) {
         if (!showTray && notes.isNotEmpty()) {
@@ -1066,7 +1068,7 @@ private fun NotesScreen(
                     if (notes.isNotEmpty()) {
                         val wrappedIndex = wrappedNoteIndex(page)
                         if (wrappedIndex != lastHapticNoteIndex) {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             lastHapticNoteIndex = wrappedIndex
                         }
                     }
@@ -1096,20 +1098,28 @@ private fun NotesScreen(
                         var lastEventTime = 0L
                         var lastVelocityX = 0f
                         detectDragGesturesAfterLongPress(
-                            onDragStart = {
+                            onDragStart = { startOffset ->
                                 isPreviewMode = true
                                 previewDragAccumulator = 0f
                                 lastEventTime = 0L
                                 lastVelocityX = 0f
+                                Log.d(
+                                    DEBUG_TAG,
+                                    "Preview drag start: x=${startOffset.x}, y=${startOffset.y}, page=${pagerState.currentPage}"
+                                )
                             },
                             onDragEnd = {
                                 isPreviewMode = false
                                 previewDragAccumulator = 0f
                                 lastEventTime = 0L
                                 lastVelocityX = 0f
+                                Log.d(DEBUG_TAG, "Preview drag end: page=${pagerState.currentPage}")
                             },
                             onDragCancel = {
-                                isPreviewMode = false
+                                Log.w(
+                                    DEBUG_TAG,
+                                    "Preview drag cancel: page=${pagerState.currentPage}, accumX=$previewDragAccumulator, velocityX=$lastVelocityX, keepingPreviewUntilActionUp=true"
+                                )
                                 previewDragAccumulator = 0f
                                 lastEventTime = 0L
                                 lastVelocityX = 0f
@@ -1125,11 +1135,21 @@ private fun NotesScreen(
                             previewDragAccumulator += dragAmount.x * accelerationBoost
                             lastEventTime = now
                             lastVelocityX = velocityX
+                            if (kotlin.math.abs(dragAmount.y) > kotlin.math.abs(dragAmount.x) * 1.5f) {
+                                Log.d(
+                                    DEBUG_TAG,
+                                    "Preview drag mostly-vertical: x=${dragAmount.x}, y=${dragAmount.y}, pos=${change.position}, prev=${change.previousPosition}, pressed=${change.pressed}"
+                                )
+                            }
 
                             val steps = (kotlin.math.abs(previewDragAccumulator) / previewStepThresholdPx).toInt()
                             if (steps > 0) {
                                 val direction = if (previewDragAccumulator < 0f) 1 else -1
                                 val targetPage = pagerState.currentPage + (direction * steps)
+                                Log.d(
+                                    DEBUG_TAG,
+                                    "Preview step: from=${pagerState.currentPage}, to=$targetPage, steps=$steps, accumX=$previewDragAccumulator, dragX=${dragAmount.x}, dragY=${dragAmount.y}, boost=$accelerationBoost, pressed=${change.pressed}"
+                                )
                                 scope.launch { pagerState.animateScrollToPage(targetPage) }
                                 previewDragAccumulator = if (previewDragAccumulator < 0f) {
                                     previewDragAccumulator + (previewStepThresholdPx * steps)
@@ -1141,6 +1161,11 @@ private fun NotesScreen(
                     }
                 }
                 .pointerInteropFilter { motionEvent ->
+                    if (motionEvent.action == MotionEvent.ACTION_UP && isPreviewMode) {
+                        isPreviewMode = false
+                        previewDragAccumulator = 0f
+                        Log.d(DEBUG_TAG, "Preview mode off on ACTION_UP")
+                    }
                     if (motionEvent.action == MotionEvent.ACTION_SCROLL) {
                         val sourceHasRotary = motionEvent.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER)
                         val vertical = motionEvent.getAxisValue(MotionEvent.AXIS_VSCROLL)
