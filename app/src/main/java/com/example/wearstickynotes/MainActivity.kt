@@ -104,7 +104,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -952,7 +951,6 @@ private fun NotesScreen(
     var showTray by remember { mutableStateOf(false) }
     var isPreviewMode by remember { mutableStateOf(false) }
     var previewDragAccumulator by remember { mutableFloatStateOf(0f) }
-    var previewCancelExitJob by remember { mutableStateOf<Job?>(null) }
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
     var lastHapticNoteIndex by remember { mutableIntStateOf(selectedIndex) }
     val noteScrollState = rememberScrollState()
@@ -1024,7 +1022,6 @@ private fun NotesScreen(
     // Keep preview scrubbing responsive so slight horizontal movement (including
     // curved/edge drags on round screens) can still advance notes.
     val previewStepThresholdPx = with(LocalDensity.current) { 4.dp.toPx() }
-    val previewCancelExitDelayMs = 550L
 
     LaunchedEffect(notes.size, showTray) {
         if (!showTray && notes.isNotEmpty()) {
@@ -1103,8 +1100,6 @@ private fun NotesScreen(
                         var lastVelocityX = 0f
                         detectDragGesturesAfterLongPress(
                             onDragStart = { startOffset ->
-                                previewCancelExitJob?.cancel()
-                                previewCancelExitJob = null
                                 isPreviewMode = true
                                 previewDragAccumulator = 0f
                                 lastEventTime = 0L
@@ -1115,8 +1110,6 @@ private fun NotesScreen(
                                 )
                             },
                             onDragEnd = {
-                                previewCancelExitJob?.cancel()
-                                previewCancelExitJob = null
                                 isPreviewMode = false
                                 previewDragAccumulator = 0f
                                 lastEventTime = 0L
@@ -1124,18 +1117,10 @@ private fun NotesScreen(
                                 Log.d(DEBUG_TAG, "Preview drag end: page=${pagerState.currentPage}")
                             },
                             onDragCancel = {
-                                // On round screens, dragging near edge dead-zones can emit cancel
-                                // even when the user intends to keep previewing.
-                                previewCancelExitJob?.cancel()
                                 Log.w(
                                     DEBUG_TAG,
-                                    "Preview drag cancel: page=${pagerState.currentPage}, accumX=$previewDragAccumulator, velocityX=$lastVelocityX, delayingExitMs=$previewCancelExitDelayMs"
+                                    "Preview drag cancel: page=${pagerState.currentPage}, accumX=$previewDragAccumulator, velocityX=$lastVelocityX, keepingPreviewUntilActionUp=true"
                                 )
-                                previewCancelExitJob = scope.launch {
-                                    delay(previewCancelExitDelayMs)
-                                    isPreviewMode = false
-                                    Log.w(DEBUG_TAG, "Preview mode forced off after cancel grace window")
-                                }
                                 previewDragAccumulator = 0f
                                 lastEventTime = 0L
                                 lastVelocityX = 0f
@@ -1177,6 +1162,11 @@ private fun NotesScreen(
                     }
                 }
                 .pointerInteropFilter { motionEvent ->
+                    if (motionEvent.action == MotionEvent.ACTION_UP && isPreviewMode) {
+                        isPreviewMode = false
+                        previewDragAccumulator = 0f
+                        Log.d(DEBUG_TAG, "Preview mode off on ACTION_UP")
+                    }
                     if (motionEvent.action == MotionEvent.ACTION_SCROLL) {
                         val sourceHasRotary = motionEvent.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER)
                         val vertical = motionEvent.getAxisValue(MotionEvent.AXIS_VSCROLL)
