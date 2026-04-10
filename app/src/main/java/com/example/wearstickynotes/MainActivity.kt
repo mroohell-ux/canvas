@@ -32,6 +32,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -129,6 +131,8 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.hypot
 import kotlin.coroutines.resume
 import kotlin.random.Random
 
@@ -139,6 +143,98 @@ private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
 private const val GENERIC_SCROLL_PAGE_THRESHOLD = 1f
+
+private data class DigitalBezelConfig(
+    val edgeRingWidthFraction: Float = 0.18f,
+    val angularStepDegrees: Float = 19f,
+    val jitterDegrees: Float = 1.8f,
+    val innerBlockFraction: Float = 0.58f
+)
+
+private fun normalizedDeltaDegrees(current: Float, previous: Float): Float {
+    val rawDelta = current - previous
+    return ((rawDelta + 540f) % 360f) - 180f
+}
+
+private fun angleDegreesFromCenter(
+    x: Float,
+    y: Float,
+    centerX: Float,
+    centerY: Float
+): Float = Math.toDegrees(atan2(y - centerY, x - centerX).toDouble()).toFloat()
+
+private fun Modifier.digitalRotatingBezel(
+    enabled: Boolean,
+    config: DigitalBezelConfig = DigitalBezelConfig(),
+    onStep: (direction: Int) -> Unit
+): Modifier {
+    if (!enabled) return this
+    return pointerInput(config, enabled) {
+        awaitEachGesture {
+            val firstDown = awaitFirstDown(requireUnconsumed = false)
+            val centerX = size.width / 2f
+            val centerY = size.height / 2f
+            val outerRadius = minOf(size.width, size.height) / 2f
+            val edgeWidth = outerRadius * config.edgeRingWidthFraction
+            val innerRadius = outerRadius * config.innerBlockFraction
+
+            val downDistance = hypot(firstDown.position.x - centerX, firstDown.position.y - centerY)
+            val startedOnEdgeRing = downDistance in (outerRadius - edgeWidth)..outerRadius
+            if (!startedOnEdgeRing || downDistance <= innerRadius) {
+                do {
+                    val event = awaitPointerEvent()
+                } while (event.changes.any { it.pressed })
+                return@awaitEachGesture
+            }
+
+            var previousAngle = angleDegreesFromCenter(
+                x = firstDown.position.x,
+                y = firstDown.position.y,
+                centerX = centerX,
+                centerY = centerY
+            )
+            var accumulatedAngle = 0f
+
+            do {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == firstDown.id } ?: continue
+                if (!change.pressed) break
+
+                val distance = hypot(change.position.x - centerX, change.position.y - centerY)
+                if (distance < innerRadius) {
+                    previousAngle = angleDegreesFromCenter(
+                        x = change.position.x,
+                        y = change.position.y,
+                        centerX = centerX,
+                        centerY = centerY
+                    )
+                    continue
+                }
+
+                val currentAngle = angleDegreesFromCenter(
+                    x = change.position.x,
+                    y = change.position.y,
+                    centerX = centerX,
+                    centerY = centerY
+                )
+                val delta = normalizedDeltaDegrees(currentAngle, previousAngle)
+                previousAngle = currentAngle
+
+                if (abs(delta) < config.jitterDegrees) continue
+                accumulatedAngle += delta
+
+                while (accumulatedAngle >= config.angularStepDegrees) {
+                    onStep(1)
+                    accumulatedAngle -= config.angularStepDegrees
+                }
+                while (accumulatedAngle <= -config.angularStepDegrees) {
+                    onStep(-1)
+                    accumulatedAngle += config.angularStepDegrees
+                }
+            } while (true)
+        }
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1091,6 +1187,11 @@ private fun NotesScreen(
                 .fillMaxSize()
                 .focusRequester(focusRequester)
                 .focusable()
+                .digitalRotatingBezel(enabled = !showTray && notes.isNotEmpty()) { direction ->
+                    scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + direction) }
+                    onRotaryAccumulatorChange(0f)
+                    genericScrollAccumulator = 0f
+                }
                 .pointerInput(showTray, notes.size) {
                     if (!showTray && notes.isNotEmpty()) {
                         var lastEventTime = 0L
