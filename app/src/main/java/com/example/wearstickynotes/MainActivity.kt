@@ -79,6 +79,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
@@ -139,6 +140,14 @@ private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
 private const val GENERIC_SCROLL_PAGE_THRESHOLD = 1f
+
+private enum class NoteFlipDirection(
+    val rotationSign: Float,
+    val transformOriginX: Float
+) {
+    RightToLeft(rotationSign = -1f, transformOriginX = 1f),
+    LeftToRight(rotationSign = 1f, transformOriginX = 0f)
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -496,7 +505,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
                             activeFlow?.let { flow -> flowLastOpenedNoteIndex[flow.id] = index }
                         },
                         isNoteBackVisible = { noteId -> noteSideState[noteId] ?: false },
-                        onFlip = { noteId ->
+                        onFlip = { noteId, _ ->
                             val current = noteSideState[noteId] ?: false
                             noteSideState[noteId] = !current
                         },
@@ -924,7 +933,7 @@ private fun NotesScreen(
     onRotaryAccumulatorChange: (Float) -> Unit,
     onSelectedIndexChange: (Int) -> Unit,
     isNoteBackVisible: (String) -> Boolean,
-    onFlip: (String) -> Unit,
+    onFlip: (String, NoteFlipDirection) -> Unit,
     isCollectionsFlow: Boolean,
     isNoteInCollection: (String) -> Boolean,
     onToggleCollection: (String) -> Unit,
@@ -953,6 +962,7 @@ private fun NotesScreen(
     var previewDragAccumulator by remember { mutableFloatStateOf(0f) }
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
     var lastHapticNoteIndex by remember { mutableIntStateOf(selectedIndex) }
+    val noteFlipDirectionState = remember { mutableStateMapOf<String, NoteFlipDirection>() }
     val noteScrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
@@ -1208,10 +1218,23 @@ private fun NotesScreen(
                 val pageNoteIndex = wrappedNoteIndex(page)
                 val note = notes[pageNoteIndex]
                 val showBack = isNoteBackVisible(note.id)
-                val text = if (showBack) note.back.text else note.front.text
-                val label = if (showBack) note.back.label else note.front.label
+                val flipDirection = noteFlipDirectionState[note.id] ?: NoteFlipDirection.RightToLeft
+                val targetRotationY = if (showBack) 180f * flipDirection.rotationSign else 0f
+                val animatedRotationY by animateFloatAsState(
+                    targetValue = targetRotationY,
+                    animationSpec = tween(durationMillis = 460, easing = FastOutSlowInEasing),
+                    label = "stickyNoteFlipRotation"
+                )
+                val normalizedRotationY = kotlin.math.abs(animatedRotationY).let { absolute ->
+                    val modulo = absolute % 360f
+                    if (modulo > 180f) 360f - modulo else modulo
+                }
+                val showingBackFace = normalizedRotationY > 90f
+                val density = LocalDensity.current
+                val text = if (showingBackFace) note.back.text else note.front.text
+                val label = if (showingBackFace) note.back.label else note.front.label
 
-                LaunchedEffect(note.id, showBack, textScale) {
+                LaunchedEffect(note.id, showingBackFace, textScale) {
                     noteScrollState.scrollTo(0)
                 }
 
@@ -1220,12 +1243,23 @@ private fun NotesScreen(
                         .fillMaxSize()
                         .clip(RoundedCornerShape(999.dp))
                         .background(noteRadialGradient(note))
+                        .graphicsLayer {
+                            rotationY = animatedRotationY
+                            transformOrigin = TransformOrigin(flipDirection.transformOriginX, 0.5f)
+                            cameraDistance = 24f * density.density
+                        }
                         .pointerInput(note.id, showTray) {
                             detectTapGestures(
-                                onTap = {
+                                onTap = { tapOffset ->
                                     Log.d(DEBUG_TAG, "Input signal: tap noteId=${note.id}, trayOpen=$showTray")
                                     if (!showTray) {
-                                        onFlip(note.id)
+                                        val direction = if (tapOffset.x < size.width / 2f) {
+                                            NoteFlipDirection.RightToLeft
+                                        } else {
+                                            NoteFlipDirection.LeftToRight
+                                        }
+                                        noteFlipDirectionState[note.id] = direction
+                                        onFlip(note.id, direction)
                                     }
                                 }
                             )
@@ -1236,8 +1270,10 @@ private fun NotesScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(vertical = 14.dp)
+                            .graphicsLayer {
+                                rotationY = if (showingBackFace) 180f else 0f
+                            }
                     ) {
-                        val density = LocalDensity.current
                         val textMeasurer = rememberTextMeasurer()
                         val horizontalPadding = 22.dp
                         val headerReserved = 30.dp
