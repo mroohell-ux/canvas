@@ -13,6 +13,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -30,6 +31,7 @@ import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.pager.HorizontalPager
@@ -42,6 +44,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
@@ -79,6 +82,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1205,11 +1209,49 @@ private fun NotesScreen(
                     .fillMaxSize()
                     .nestedScroll(swipeAccelerationConnection)
             ) { page ->
+                val density = LocalDensity.current
                 val pageNoteIndex = wrappedNoteIndex(page)
                 val note = notes[pageNoteIndex]
-                val showBack = isNoteBackVisible(note.id)
+                val settledBack = isNoteBackVisible(note.id)
+                val cardRotation = remember(note.id) { Animatable(if (settledBack) 180f else 0f) }
+                var cardWidthPx by remember(note.id) { mutableFloatStateOf(1f) }
+                var cardHeightPx by remember(note.id) { mutableFloatStateOf(1f) }
+                var hingeBias by remember(note.id) { mutableFloatStateOf(0.5f) }
+                var fingerBiasX by remember(note.id) { mutableFloatStateOf(0.5f) }
+                var fingerBiasY by remember(note.id) { mutableFloatStateOf(0.5f) }
+                var dragging by remember(note.id) { mutableStateOf(false) }
+                var midpointTicked by remember(note.id) { mutableStateOf(false) }
+                val showBack = cardRotation.value >= 90f
                 val text = if (showBack) note.back.text else note.front.text
                 val label = if (showBack) note.back.label else note.front.label
+                val lift by animateFloatAsState(
+                    targetValue = if (dragging) 7f else 0f,
+                    animationSpec = tween(140, easing = FastOutSlowInEasing),
+                    label = "noteLift"
+                )
+                val pressScaleX by animateFloatAsState(
+                    targetValue = if (dragging) 0.97f else 1f,
+                    animationSpec = tween(120, easing = FastOutSlowInEasing),
+                    label = "noteScaleX"
+                )
+                val pressScaleY by animateFloatAsState(
+                    targetValue = if (dragging) 0.985f else 1f,
+                    animationSpec = tween(120, easing = FastOutSlowInEasing),
+                    label = "noteScaleY"
+                )
+                val shadowBoost by animateFloatAsState(
+                    targetValue = if (dragging) 1f else 0f,
+                    animationSpec = tween(140),
+                    label = "shadowBoost"
+                )
+                val edgeBandStrength = (1f - (abs(cardRotation.value - 90f) / 45f)).coerceIn(0f, 1f)
+
+                LaunchedEffect(settledBack, note.id) {
+                    val target = if (settledBack) 180f else 0f
+                    if (!dragging && abs(cardRotation.value - target) > 0.5f) {
+                        cardRotation.snapTo(target)
+                    }
+                }
 
                 LaunchedEffect(note.id, showBack, textScale) {
                     noteScrollState.scrollTo(0)
@@ -1219,19 +1261,139 @@ private fun NotesScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(RoundedCornerShape(999.dp))
+                        .graphicsLayer {
+                            transformOrigin = TransformOrigin(hingeBias, 0.5f)
+                            rotationY = cardRotation.value
+                            translationY = -lift
+                            scaleX = pressScaleX
+                            scaleY = pressScaleY
+                            cameraDistance = 16f * density.density * 100f
+                            shadowElevation = (12f + (16f * shadowBoost)) * density.density
+                        }
                         .background(noteRadialGradient(note))
                         .pointerInput(note.id, showTray) {
                             detectTapGestures(
                                 onTap = {
                                     Log.d(DEBUG_TAG, "Input signal: tap noteId=${note.id}, trayOpen=$showTray")
                                     if (!showTray) {
-                                        onFlip(note.id)
+                                        midpointTicked = false
+                                        val target = if (settledBack) 0f else 180f
+                                        scope.launch {
+                                            cardRotation.animateTo(
+                                                targetValue = target,
+                                                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
+                                            )
+                                            onFlip(note.id)
+                                        }
                                     }
                                 }
                             )
                         },
                     contentAlignment = Alignment.Center
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(note.id, showTray, settledBack) {
+                                detectDragGestures(
+                                    onDragStart = { offset ->
+                                        if (showTray) return@detectDragGestures
+                                        dragging = true
+                                        midpointTicked = false
+                                        cardWidthPx = size.width.toFloat().coerceAtLeast(1f)
+                                        cardHeightPx = size.height.toFloat().coerceAtLeast(1f)
+                                        fingerBiasX = (offset.x / cardWidthPx).coerceIn(0.08f, 0.92f)
+                                        fingerBiasY = (offset.y / cardHeightPx).coerceIn(0f, 1f)
+                                        hingeBias = fingerBiasX
+                                    },
+                                    onDragEnd = {
+                                        if (showTray) return@detectDragGestures
+                                        dragging = false
+                                        val completeFlip = cardRotation.value >= 90f
+                                        val releaseTarget = if (completeFlip) 180f else 0f
+                                        scope.launch {
+                                            cardRotation.animateTo(
+                                                targetValue = releaseTarget,
+                                                animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+                                            )
+                                            cardRotation.animateTo(
+                                                targetValue = releaseTarget,
+                                                animationSpec = spring(dampingRatio = 0.74f, stiffness = 430f)
+                                            )
+                                            if (completeFlip != settledBack) {
+                                                onFlip(note.id)
+                                            }
+                                        }
+                                    },
+                                    onDragCancel = {
+                                        dragging = false
+                                        scope.launch {
+                                            cardRotation.animateTo(
+                                                targetValue = if (settledBack) 180f else 0f,
+                                                animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                                            )
+                                        }
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        if (showTray) return@detectDragGestures
+                                        change.consume()
+                                        cardWidthPx = size.width.toFloat().coerceAtLeast(1f)
+                                        cardHeightPx = size.height.toFloat().coerceAtLeast(1f)
+                                        fingerBiasX = (change.position.x / cardWidthPx).coerceIn(0.08f, 0.92f)
+                                        fingerBiasY = (change.position.y / cardHeightPx).coerceIn(0f, 1f)
+                                        hingeBias = ((hingeBias * 0.78f) + (fingerBiasX * 0.22f)).coerceIn(0.08f, 0.92f)
+                                        val next = (cardRotation.value + (dragAmount.x / cardWidthPx) * 240f).coerceIn(0f, 180f)
+                                        val crossedMid = (cardRotation.value < 90f && next >= 90f) || (cardRotation.value > 90f && next <= 90f)
+                                        scope.launch { cardRotation.snapTo(next) }
+                                        if (crossedMid && !midpointTicked) {
+                                            midpointTicked = true
+                                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        } else if (!crossedMid) {
+                                            midpointTicked = false
+                                        }
+                                    }
+                                )
+                            }
+                            .background(
+                                Color.Black.copy(alpha = if (dragging) 0.07f else 0f)
+                            ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (dragging) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(
+                                            Color.Black.copy(alpha = 0.18f),
+                                            Color.Transparent
+                                        ),
+                                        center = androidx.compose.ui.geometry.Offset(
+                                            x = cardWidthPx * fingerBiasX,
+                                            y = cardHeightPx * fingerBiasY
+                                        ),
+                                        radius = cardWidthPx * 0.52f
+                                    )
+                                )
+                        )
+                    }
+                    if (edgeBandStrength > 0.01f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(0.015f + edgeBandStrength * 0.02f)
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color(0xFF1A0E24).copy(alpha = 0.72f * edgeBandStrength),
+                                            Color(0xFF3A2056).copy(alpha = 0.88f * edgeBandStrength),
+                                            Color(0xFF0D0813).copy(alpha = 0.78f * edgeBandStrength)
+                                        )
+                                    )
+                                )
+                        )
+                    }
                     BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxSize()
