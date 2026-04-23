@@ -1246,7 +1246,7 @@ private fun NotesScreen(
                         .graphicsLayer {
                             rotationY = animatedRotationY
                             transformOrigin = TransformOrigin(flipDirection.transformOriginX, 0.5f)
-                            cameraDistance = 24f * density
+                            cameraDistance = 24f * density.density
                         }
                         .pointerInput(note.id, showTray) {
                             detectTapGestures(
