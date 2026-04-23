@@ -1208,8 +1208,17 @@ private fun NotesScreen(
                 val pageNoteIndex = wrappedNoteIndex(page)
                 val note = notes[pageNoteIndex]
                 val showBack = isNoteBackVisible(note.id)
-                val text = if (showBack) note.back.text else note.front.text
-                val label = if (showBack) note.back.label else note.front.label
+                val density = LocalDensity.current
+                val flipRotation by animateFloatAsState(
+                    targetValue = if (showBack) 180f else 0f,
+                    animationSpec = tween(durationMillis = 460, easing = FastOutSlowInEasing),
+                    label = "noteFlipRotation"
+                )
+                val showingBackFace = flipRotation > 90f
+                val visibleSide = if (showingBackFace) note.back else note.front
+                val text = visibleSide.text
+                val label = visibleSide.label
+                val cardCameraDistancePx = with(density) { 28.dp.toPx() }
 
                 LaunchedEffect(note.id, showBack, textScale) {
                     noteScrollState.scrollTo(0)
@@ -1218,6 +1227,10 @@ private fun NotesScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .graphicsLayer {
+                            rotationY = flipRotation
+                            cameraDistance = cardCameraDistancePx
+                        }
                         .clip(RoundedCornerShape(999.dp))
                         .background(noteRadialGradient(note))
                         .pointerInput(note.id, showTray) {
@@ -1235,9 +1248,11 @@ private fun NotesScreen(
                     BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxSize()
+                            .graphicsLayer {
+                                rotationY = if (showingBackFace) 180f else 0f
+                            }
                             .padding(vertical = 14.dp)
                     ) {
-                        val density = LocalDensity.current
                         val textMeasurer = rememberTextMeasurer()
                         val horizontalPadding = 22.dp
                         val headerReserved = 30.dp
