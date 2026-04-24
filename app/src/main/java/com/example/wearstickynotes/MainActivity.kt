@@ -30,9 +30,10 @@ import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -950,7 +951,6 @@ private fun NotesScreen(
 
     var showTray by remember { mutableStateOf(false) }
     var isPreviewMode by remember { mutableStateOf(false) }
-    var previewDragAccumulator by remember { mutableFloatStateOf(0f) }
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
     var lastHapticNoteIndex by remember { mutableIntStateOf(selectedIndex) }
     val noteScrollState = rememberScrollState()
@@ -1019,7 +1019,8 @@ private fun NotesScreen(
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
         label = "trayScrimAlpha"
     )
-    val previewStepThresholdPx = with(LocalDensity.current) { 18.dp.toPx() }
+    val previewCircleSize = (minScreenDp * 0.28f).coerceIn(56f, 78f).dp
+    val previewHorizontalPadding = (minScreenDp * 0.07f).coerceIn(10f, 22f).dp
 
     LaunchedEffect(notes.size, showTray) {
         if (!showTray && notes.isNotEmpty()) {
@@ -1093,51 +1094,13 @@ private fun NotesScreen(
                 .focusable()
                 .pointerInput(showTray, notes.size) {
                     if (!showTray && notes.isNotEmpty()) {
-                        var lastEventTime = 0L
-                        var lastVelocityX = 0f
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = {
-                                isPreviewMode = true
-                                previewDragAccumulator = 0f
-                                lastEventTime = 0L
-                                lastVelocityX = 0f
-                            },
-                            onDragEnd = {
-                                isPreviewMode = false
-                                previewDragAccumulator = 0f
-                                lastEventTime = 0L
-                                lastVelocityX = 0f
-                            },
-                            onDragCancel = {
-                                isPreviewMode = false
-                                previewDragAccumulator = 0f
-                                lastEventTime = 0L
-                                lastVelocityX = 0f
-                            }
-                        ) { change, dragAmount ->
-                            change.consume()
-                            val now = change.uptimeMillis
-                            val deltaMs = if (lastEventTime == 0L) 16L else (now - lastEventTime).coerceAtLeast(1L)
-                            val velocityX = dragAmount.x / deltaMs.toFloat() // px/ms
-                            val accelerationX = (velocityX - lastVelocityX) / deltaMs.toFloat() // px/ms^2
-                            val accelerationBoost = (1f + (kotlin.math.abs(accelerationX) * 350f)).coerceIn(1f, 5f)
-
-                            previewDragAccumulator += dragAmount.x * accelerationBoost
-                            lastEventTime = now
-                            lastVelocityX = velocityX
-
-                            val steps = (kotlin.math.abs(previewDragAccumulator) / previewStepThresholdPx).toInt()
-                            if (steps > 0) {
-                                val direction = if (previewDragAccumulator < 0f) 1 else -1
-                                val targetPage = pagerState.currentPage + (direction * steps)
-                                scope.launch { pagerState.animateScrollToPage(targetPage) }
-                                previewDragAccumulator = if (previewDragAccumulator < 0f) {
-                                    previewDragAccumulator + (previewStepThresholdPx * steps)
-                                } else {
-                                    previewDragAccumulator - (previewStepThresholdPx * steps)
+                        detectTapGestures(
+                            onLongPress = {
+                                if (!isPreviewMode) {
+                                    isPreviewMode = true
                                 }
                             }
-                        }
+                        )
                     }
                 }
                 .pointerInteropFilter { motionEvent ->
@@ -1203,10 +1166,33 @@ private fun NotesScreen(
                 state = pagerState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .nestedScroll(swipeAccelerationConnection)
+                    .nestedScroll(swipeAccelerationConnection),
+                pageSize = if (isPreviewMode) PageSize.Fixed(previewCircleSize) else PageSize.Fill,
+                pageSpacing = if (isPreviewMode) 10.dp else 0.dp,
+                contentPadding = if (isPreviewMode) {
+                    PaddingValues(horizontal = previewHorizontalPadding)
+                } else {
+                    PaddingValues(0.dp)
+                }
             ) { page ->
                 val pageNoteIndex = wrappedNoteIndex(page)
                 val note = notes[pageNoteIndex]
+                val pageDistance = abs((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                val previewScaleTarget = if (!isPreviewMode) {
+                    1f
+                } else {
+                    (0.9f - (pageDistance * 0.14f)).coerceIn(0.68f, 0.9f)
+                }
+                val previewScale by animateFloatAsState(
+                    targetValue = previewScaleTarget,
+                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 430f),
+                    label = "previewScale"
+                )
+                val previewAlpha by animateFloatAsState(
+                    targetValue = if (isPreviewMode) (1f - (pageDistance * 0.16f)).coerceIn(0.58f, 1f) else 1f,
+                    animationSpec = spring(dampingRatio = 0.9f, stiffness = 440f),
+                    label = "previewAlpha"
+                )
                 val showBack = isNoteBackVisible(note.id)
                 val density = LocalDensity.current
                 val flipRotation by animateFloatAsState(
@@ -1226,10 +1212,20 @@ private fun NotesScreen(
 
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .then(
+                            if (isPreviewMode) {
+                                Modifier
+                                    .size(previewCircleSize)
+                            } else {
+                                Modifier.fillMaxSize()
+                            }
+                        )
                         .graphicsLayer {
                             rotationY = flipRotation
                             cameraDistance = cardCameraDistancePx
+                            scaleX = previewScale
+                            scaleY = previewScale
+                            alpha = previewAlpha
                         }
                         .clip(RoundedCornerShape(999.dp))
                         .background(noteRadialGradient(note))
@@ -1237,7 +1233,9 @@ private fun NotesScreen(
                             detectTapGestures(
                                 onTap = {
                                     Log.d(DEBUG_TAG, "Input signal: tap noteId=${note.id}, trayOpen=$showTray")
-                                    if (!showTray) {
+                                    if (!showTray && isPreviewMode) {
+                                        isPreviewMode = false
+                                    } else if (!showTray) {
                                         onFlip(note.id)
                                     }
                                 }
@@ -1251,10 +1249,10 @@ private fun NotesScreen(
                             .graphicsLayer {
                                 rotationY = if (showingBackFace) 180f else 0f
                             }
-                            .padding(vertical = 14.dp)
+                            .padding(vertical = if (isPreviewMode) 8.dp else 14.dp)
                     ) {
                         val textMeasurer = rememberTextMeasurer()
-                        val horizontalPadding = 22.dp
+                        val horizontalPadding = if (isPreviewMode) 12.dp else 22.dp
                         val headerReserved = 30.dp
                         val baseFontSize = adaptiveFontSize(text) * textScale.factor
 
@@ -1296,27 +1294,30 @@ private fun NotesScreen(
                         val useScrollableTopLayout = needsScroll
                         val noteHeaderTextColor = Color(0xFFEAF2FF)
                         val noteBodyTextColor = Color(0xFFF2F6FB)
-                        Text(
-                            text = "$flowName • ${pageNoteIndex + 1}/${notes.size} • ${label}",
-                            fontSize = 12.sp,
-                            color = noteHeaderTextColor.copy(alpha = 0.78f),
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 2.dp)
-                        )
-                        if (isPreviewMode) {
+                        if (!isPreviewMode) {
                             Text(
-                                text = "Preview",
-                                color = noteHeaderTextColor.copy(alpha = 0.82f),
-                                fontSize = 10.sp,
+                                text = "$flowName • ${pageNoteIndex + 1}/${notes.size} • ${label}",
+                                fontSize = 12.sp,
+                                color = noteHeaderTextColor.copy(alpha = 0.78f),
+                                textAlign = TextAlign.Center,
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
-                                    .padding(top = 16.dp)
+                                    .padding(top = 2.dp)
                             )
                         }
 
-                        if (useScrollableTopLayout) {
+                        if (isPreviewMode) {
+                            Text(
+                                text = (text.take(34) + if (text.length > 34) "…" else ""),
+                                color = noteBodyTextColor,
+                                fontSize = 10.sp,
+                                lineHeight = 12.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .padding(horizontal = horizontalPadding)
+                            )
+                        } else if (useScrollableTopLayout) {
                             CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1359,17 +1360,29 @@ private fun NotesScreen(
             }
         }
 
-        val currentNoteId = notes[wrappedNoteIndex(pagerState.currentPage)].id
-        val isInCollection = isNoteInCollection(currentNoteId)
-        Text(
-            text = if (isInCollection) "★" else "☆",
-            color = if (isInCollection) Color(0xFFFFD54F) else Color.White,
-            fontSize = starFontSize,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = starBottomPadding)
-                .clickable { onToggleCollection(currentNoteId) }
-        )
+        if (isPreviewMode) {
+            Text(
+                text = "Preview mode • swipe to browse • tap a note to exit",
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = 10.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 18.dp)
+            )
+        } else {
+            val currentNoteId = notes[wrappedNoteIndex(pagerState.currentPage)].id
+            val isInCollection = isNoteInCollection(currentNoteId)
+            Text(
+                text = if (isInCollection) "★" else "☆",
+                color = if (isInCollection) Color(0xFFFFD54F) else Color.White,
+                fontSize = starFontSize,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = starBottomPadding)
+                    .clickable { onToggleCollection(currentNoteId) }
+            )
+        }
 
         if (trayScrimAlpha > 0.001f) {
             Box(
