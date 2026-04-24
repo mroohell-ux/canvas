@@ -2,11 +2,16 @@ package com.example.wearstickynotes
 
 import android.app.Activity
 import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -69,6 +74,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
@@ -967,6 +973,7 @@ private fun NotesScreen(
     onTextScaleChange: (TextScaleOption) -> Unit
 ) {
     data class BubbleAnchor(val x: Float, val y: Float, val radiusScale: Float)
+    val context = LocalContext.current
 
     fun wrappedNoteIndex(page: Int): Int {
         if (notes.isEmpty()) return 0
@@ -986,6 +993,7 @@ private fun NotesScreen(
     var isPreviewMode by remember { mutableStateOf(false) }
     var isBubbleMode by remember { mutableStateOf(false) }
     var bubblePan by remember { mutableStateOf(Offset.Zero) }
+    var bubbleShuffleSeed by remember { mutableIntStateOf(0) }
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
     var lastHapticNoteIndex by remember { mutableIntStateOf(selectedIndex) }
     val noteScrollState = rememberScrollState()
@@ -1021,13 +1029,15 @@ private fun NotesScreen(
     val bubbleDiameterScale = (0.92f - (((noteCount - 1).toFloat() / 42f) * 0.20f)).coerceIn(0.68f, 0.92f)
     val bubbleItemSize = previewCircleSize * bubbleDiameterScale
     val bubbleItemSizePx = with(LocalDensity.current) { bubbleItemSize.toPx() }
-    val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx) {
+    val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx, bubbleShuffleSeed) {
         val safeCount = noteCount
+        val arrangedNoteIndices = notes.indices.shuffled(Random(bubbleShuffleSeed.toLong()))
         notes.mapIndexed { index, note ->
-            val seed = note.id.hashCode().toLong()
+            val arrangedIndex = arrangedNoteIndices[index]
+            val seed = note.id.hashCode().toLong() xor bubbleShuffleSeed.toLong()
             val random = Random(seed)
-            val normalizedIndex = (index + 0.5f) / safeCount.toFloat()
-            val theta = (index * 2.3999632f) + (random.nextFloat() * 0.24f)
+            val normalizedIndex = (arrangedIndex + 0.5f) / safeCount.toFloat()
+            val theta = (arrangedIndex * 2.3999632f) + (random.nextFloat() * 0.24f)
             val radial = kotlin.math.sqrt(normalizedIndex)
             val ellipseX = (bubbleSpaceWidthPx * 0.34f) * radial
             val ellipseY = (bubbleSpaceHeightPx * 0.34f) * radial
@@ -1128,6 +1138,52 @@ private fun NotesScreen(
         label = "trayScrimAlpha"
     )
     val previewTransitionProgress = remember { androidx.compose.animation.core.Animatable(0f) }
+    val sensorManager = remember {
+        context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+    }
+
+    DisposableEffect(isBubbleMode, notes.size) {
+        if (!isBubbleMode || notes.size < 2 || sensorManager == null) {
+            onDispose { }
+        } else {
+            val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            if (accelerometer == null) {
+                onDispose { }
+            } else {
+                var gravityX = 0f
+                var gravityY = 0f
+                var gravityZ = 0f
+                var lastShuffleAt = 0L
+                val shakeThreshold = 12.5f
+                val cooldownMs = 1_100L
+                val alpha = 0.82f
+                val listener = object : SensorEventListener {
+                    override fun onSensorChanged(event: SensorEvent) {
+                        gravityX = (alpha * gravityX) + ((1f - alpha) * event.values[0])
+                        gravityY = (alpha * gravityY) + ((1f - alpha) * event.values[1])
+                        gravityZ = (alpha * gravityZ) + ((1f - alpha) * event.values[2])
+
+                        val linearX = event.values[0] - gravityX
+                        val linearY = event.values[1] - gravityY
+                        val linearZ = event.values[2] - gravityZ
+                        val acceleration = hypot(hypot(linearX, linearY), linearZ)
+                        val now = SystemClock.elapsedRealtime()
+                        if (acceleration > shakeThreshold && now - lastShuffleAt > cooldownMs) {
+                            lastShuffleAt = now
+                            bubbleShuffleSeed += 1
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    }
+
+                    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+                }
+
+                sensorManager.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_GAME)
+                onDispose { sensorManager.unregisterListener(listener) }
+            }
+        }
+    }
+
     LaunchedEffect(isPreviewMode, isBubbleMode) {
         if (isBubbleMode) {
             val selectedAnchor = if (bubbleAnchors.isNotEmpty()) {
