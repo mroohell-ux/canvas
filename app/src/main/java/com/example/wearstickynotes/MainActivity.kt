@@ -1014,7 +1014,7 @@ private fun NotesScreen(
     val bubbleSpaceHeightPx = screenHeightPx * 2.15f
     val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
     val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
-    val bubblePanSpeed = 1.65f
+    val bubblePanSpeed = 2.8f
     val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx) {
         val safeCount = notes.size.coerceAtLeast(1)
         notes.mapIndexed { index, note ->
