@@ -1231,6 +1231,11 @@ private fun NotesScreen(
                         .background(noteRadialGradient(note))
                         .pointerInput(note.id, showTray) {
                             detectTapGestures(
+                                onLongPress = {
+                                    if (!showTray && !isPreviewMode) {
+                                        isPreviewMode = true
+                                    }
+                                },
                                 onTap = {
                                     Log.d(DEBUG_TAG, "Input signal: tap noteId=${note.id}, trayOpen=$showTray")
                                     if (!showTray && isPreviewMode) {
