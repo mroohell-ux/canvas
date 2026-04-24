@@ -15,8 +15,13 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.togetherWith
@@ -31,7 +36,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.pager.HorizontalPager
@@ -77,6 +84,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusable
@@ -85,6 +93,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -133,6 +142,11 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.math.abs
+import kotlin.math.hypot
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.ln
 import kotlin.coroutines.resume
 import kotlin.random.Random
 
@@ -952,6 +966,8 @@ private fun NotesScreen(
     textScale: TextScaleOption,
     onTextScaleChange: (TextScaleOption) -> Unit
 ) {
+    data class BubbleAnchor(val x: Float, val y: Float, val radiusScale: Float)
+
     fun wrappedNoteIndex(page: Int): Int {
         if (notes.isEmpty()) return 0
         val size = notes.size
@@ -968,6 +984,8 @@ private fun NotesScreen(
 
     var showTray by remember { mutableStateOf(false) }
     var isPreviewMode by remember { mutableStateOf(false) }
+    var isBubbleMode by remember { mutableStateOf(false) }
+    var bubblePan by remember { mutableStateOf(Offset.Zero) }
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
     var lastHapticNoteIndex by remember { mutableIntStateOf(selectedIndex) }
     val noteScrollState = rememberScrollState()
@@ -989,8 +1007,43 @@ private fun NotesScreen(
     )
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
+    val noteCount = notes.size.coerceAtLeast(1)
+    val screenWidthPx = with(LocalDensity.current) { configuration.screenWidthDp.dp.toPx() }
+    val screenHeightPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() }
     val previewCircleSize = (minScreenDp * 0.40f).coerceIn(72f, 108f).dp
     val previewPageWidthPx = with(LocalDensity.current) { previewCircleSize.toPx() }
+    val noteDensityGrowth = ln(noteCount.toFloat() + 1f)
+    val bubbleSpaceWidthPx = screenWidthPx * (0.98f + (noteDensityGrowth * 0.28f))
+    val bubbleSpaceHeightPx = screenHeightPx * (1.05f + (noteDensityGrowth * 0.36f))
+    val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
+    val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
+    val bubblePanSpeed = 9.8f
+    val bubbleDiameterScale = (0.92f - (((noteCount - 1).toFloat() / 42f) * 0.20f)).coerceIn(0.68f, 0.92f)
+    val bubbleItemSize = previewCircleSize * bubbleDiameterScale
+    val bubbleItemSizePx = with(LocalDensity.current) { bubbleItemSize.toPx() }
+    val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx) {
+        val safeCount = noteCount
+        notes.mapIndexed { index, note ->
+            val seed = note.id.hashCode().toLong()
+            val random = Random(seed)
+            val normalizedIndex = (index + 0.5f) / safeCount.toFloat()
+            val theta = (index * 2.3999632f) + (random.nextFloat() * 0.24f)
+            val radial = kotlin.math.sqrt(normalizedIndex)
+            val ellipseX = (bubbleSpaceWidthPx * 0.34f) * radial
+            val ellipseY = (bubbleSpaceHeightPx * 0.34f) * radial
+            BubbleAnchor(
+                x = (cos(theta) * ellipseX) + ((random.nextFloat() - 0.5f) * bubbleItemSizePx * 0.08f),
+                y = (sin(theta) * ellipseY) + ((random.nextFloat() - 0.5f) * bubbleItemSizePx * 0.07f),
+                radiusScale = random.nextFloat()
+            )
+        }
+    }
+    fun updateBubblePan(deltaX: Float, deltaY: Float) {
+        bubblePan = Offset(
+            x = (bubblePan.x + (deltaX * bubblePanSpeed)).coerceIn(-bubblePanLimitX, bubblePanLimitX),
+            y = (bubblePan.y + (deltaY * bubblePanSpeed)).coerceIn(-bubblePanLimitY, bubblePanLimitY)
+        )
+    }
 
     val swipeAccelerationConnection = remember(pagerState, notes.size, isPreviewMode, previewPageWidthPx) {
         object : NestedScrollConnection {
@@ -1075,7 +1128,26 @@ private fun NotesScreen(
         label = "trayScrimAlpha"
     )
     val previewTransitionProgress = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(isPreviewMode) {
+    LaunchedEffect(isPreviewMode, isBubbleMode) {
+        if (isBubbleMode) {
+            val selectedAnchor = if (bubbleAnchors.isNotEmpty()) {
+                bubbleAnchors.getOrNull(selectedIndex.coerceIn(0, bubbleAnchors.lastIndex))
+            } else {
+                null
+            }
+            bubblePan = if (selectedAnchor != null) {
+                Offset(
+                    x = (-selectedAnchor.x).coerceIn(-bubblePanLimitX, bubblePanLimitX),
+                    y = (-selectedAnchor.y).coerceIn(-bubblePanLimitY, bubblePanLimitY)
+                )
+            } else {
+                Offset.Zero
+            }
+        }
+        if (!isPreviewMode) {
+            isBubbleMode = false
+            bubblePan = Offset.Zero
+        }
         previewTransitionProgress.animateTo(
             targetValue = if (isPreviewMode) 1f else 0f,
             animationSpec = spring(dampingRatio = 0.92f, stiffness = 180f)
@@ -1083,7 +1155,6 @@ private fun NotesScreen(
     }
     val screenWidthDp = configuration.screenWidthDp.dp
     val previewHorizontalPadding = ((screenWidthDp - previewCircleSize) / 2f).coerceAtLeast(0.dp)
-
     LaunchedEffect(notes.size, showTray) {
         if (!showTray && notes.isNotEmpty()) {
             // Request focus only when the focusable note container is in composition.
@@ -1154,11 +1225,21 @@ private fun NotesScreen(
                 .fillMaxSize()
                 .focusRequester(focusRequester)
                 .focusable()
+                .pointerInput(showTray, notes.size, isPreviewMode, isBubbleMode) {
+                    if (!showTray && notes.isNotEmpty() && isPreviewMode && !isBubbleMode) {
+                        detectTransformGestures { _, _, zoom, _ ->
+                            if (abs(zoom - 1f) > 0.04f) {
+                                isBubbleMode = true
+                            }
+                        }
+                    }
+                }
                 .pointerInput(showTray, notes.size) {
                     if (!showTray && notes.isNotEmpty()) {
                         detectTapGestures(
                             onLongPress = {
                                 if (!isPreviewMode) {
+                                    isBubbleMode = false
                                     isPreviewMode = true
                                 }
                             }
@@ -1224,19 +1305,118 @@ private fun NotesScreen(
                 },
             contentAlignment = Alignment.Center
         ) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .nestedScroll(swipeAccelerationConnection),
-                pageSize = if (isPreviewMode) PageSize.Fixed(previewCircleSize) else PageSize.Fill,
-                pageSpacing = if (isPreviewMode) (-6).dp else 0.dp,
-                contentPadding = if (isPreviewMode) {
-                    PaddingValues(horizontal = previewHorizontalPadding)
-                } else {
-                    PaddingValues(0.dp)
+            if (isBubbleMode) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clipToBounds()
+                        .pointerInput(showTray, notes.size, isBubbleMode) {
+                            if (!showTray && notes.isNotEmpty() && isBubbleMode) {
+                                detectDragGestures { _, dragAmount ->
+                                    updateBubblePan(dragAmount.x, dragAmount.y)
+                                }
+                            }
+                        }
+                        .pointerInput(showTray, notes.size, bubblePan, isBubbleMode) {
+                            if (!showTray && notes.isNotEmpty()) {
+                                detectTransformGestures { _, pan, _, _ ->
+                                    updateBubblePan(pan.x, pan.y)
+                                }
+                            }
+                        }
+                ) {
+                    notes.forEachIndexed { index, note ->
+                        val anchor = bubbleAnchors.getOrNull(index) ?: BubbleAnchor(0f, 0f, 0.5f)
+                        val distanceFromCenter = hypot(anchor.x, anchor.y)
+                        val depthFade = (1f - (distanceFromCenter / (bubbleSpaceWidthPx * 0.9f))).coerceIn(0.58f, 1f)
+                        val targetScale = (0.86f + anchor.radiusScale * 0.24f) * depthFade
+                        val bubblePulse = rememberInfiniteTransition(label = "bubblePulse$index")
+                        val driftProgress by bubblePulse.animateFloat(
+                            initialValue = 0f,
+                            targetValue = (2f * PI).toFloat(),
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(
+                                    durationMillis = 4600 + ((anchor.radiusScale * 2200f).roundToInt()),
+                                    easing = LinearEasing
+                                ),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "bubbleDrift$index"
+                        )
+                        val driftX = (cos(driftProgress + (anchor.radiusScale * PI).toFloat()) * (8f + anchor.radiusScale * 12f)).toFloat()
+                        val driftY = (sin(driftProgress + (index * 0.55f)) * (6f + anchor.radiusScale * 10f)).toFloat()
+                        val animatedScale by animateFloatAsState(
+                            targetValue = targetScale,
+                            animationSpec = spring(dampingRatio = 0.84f, stiffness = 140f),
+                            label = "bubbleScale$index"
+                        )
+                        val animatedX by animateFloatAsState(
+                            targetValue = anchor.x + bubblePan.x + driftX,
+                            animationSpec = spring(dampingRatio = 0.82f, stiffness = 120f),
+                            label = "bubbleX$index"
+                        )
+                        val animatedY by animateFloatAsState(
+                            targetValue = anchor.y + bubblePan.y + driftY,
+                            animationSpec = spring(dampingRatio = 0.82f, stiffness = 120f),
+                            label = "bubbleY$index"
+                        )
+                        val bubbleAlpha by animateFloatAsState(
+                            targetValue = (0.72f + (anchor.radiusScale * 0.26f)).coerceIn(0.7f, 0.98f),
+                            animationSpec = tween(durationMillis = 420),
+                            label = "bubbleAlpha$index"
+                        )
+                        val snippet = note.front.text.replace("\n", " ").trim()
+
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .offset {
+                                    IntOffset(
+                                        x = animatedX.roundToInt(),
+                                        y = animatedY.roundToInt()
+                                    )
+                                }
+                                .size(bubbleItemSize)
+                                .graphicsLayer {
+                                    scaleX = animatedScale
+                                    scaleY = animatedScale
+                                    alpha = bubbleAlpha
+                                }
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(noteRadialGradient(note))
+                                .clickable {
+                                    onSelectedIndexChange(index)
+                                    scope.launch { pagerState.scrollToPage(nearestVirtualPage(pagerState.currentPage, index)) }
+                                    isBubbleMode = false
+                                    isPreviewMode = false
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = snippet.take(40) + if (snippet.length > 40) "…" else "",
+                                color = Color(0xFFF2F6FB),
+                                fontSize = 10.sp,
+                                lineHeight = 12.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+                        }
+                    }
                 }
-            ) { page ->
+            } else {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(swipeAccelerationConnection),
+                    pageSize = if (isPreviewMode) PageSize.Fixed(previewCircleSize) else PageSize.Fill,
+                    pageSpacing = if (isPreviewMode) (-6).dp else 0.dp,
+                    contentPadding = if (isPreviewMode) {
+                        PaddingValues(horizontal = previewHorizontalPadding)
+                    } else {
+                        PaddingValues(0.dp)
+                    }
+                ) { page ->
                 val pageNoteIndex = wrappedNoteIndex(page)
                 val note = notes[pageNoteIndex]
                 val pageDistance = abs((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
@@ -1294,6 +1474,7 @@ private fun NotesScreen(
                             detectTapGestures(
                                 onLongPress = {
                                     if (!showTray && !isPreviewMode) {
+                                        isBubbleMode = false
                                         isPreviewMode = true
                                     }
                                 },
@@ -1304,6 +1485,7 @@ private fun NotesScreen(
                                             pagerState.scrollToPage(page)
                                             onSelectedIndexChange(pageNoteIndex)
                                         }
+                                        isBubbleMode = false
                                         isPreviewMode = false
                                     } else if (!showTray) {
                                         onFlip(note.id)
@@ -1427,6 +1609,7 @@ private fun NotesScreen(
                         }
                     }
                 }
+            }
             }
         }
 
