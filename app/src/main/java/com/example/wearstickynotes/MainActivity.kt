@@ -1026,7 +1026,7 @@ private fun NotesScreen(
     val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
     val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
     val bubblePanSpeed = 9.8f
-    val bubbleDiameterScale = (0.92f - (densityCurve * 0.46f)).coerceIn(0.44f, 0.92f)
+    val bubbleDiameterScale = (1.14f - (densityCurve * 0.34f)).coerceIn(0.64f, 1.18f)
     val bubbleItemSize = previewCircleSize * bubbleDiameterScale
     val bubbleItemSizePx = with(LocalDensity.current) { bubbleItemSize.toPx() }
     val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx, bubbleShuffleSeed) {
