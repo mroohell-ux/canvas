@@ -1010,10 +1010,11 @@ private fun NotesScreen(
     val screenHeightPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() }
     val previewCircleSize = (minScreenDp * 0.40f).coerceIn(72f, 108f).dp
     val previewPageWidthPx = with(LocalDensity.current) { previewCircleSize.toPx() }
-    val bubbleSpaceWidthPx = screenWidthPx * 1.45f
-    val bubbleSpaceHeightPx = screenHeightPx * 1.65f
+    val bubbleSpaceWidthPx = screenWidthPx * 1.95f
+    val bubbleSpaceHeightPx = screenHeightPx * 2.15f
     val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
     val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
+    val bubblePanSpeed = 1.65f
     val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx) {
         val safeCount = notes.size.coerceAtLeast(1)
         notes.mapIndexed { index, note ->
@@ -1301,8 +1302,8 @@ private fun NotesScreen(
                             if (!showTray && notes.isNotEmpty() && isBubbleMode) {
                                 detectDragGestures { _, dragAmount ->
                                     bubblePan = Offset(
-                                        x = (bubblePan.x + dragAmount.x).coerceIn(-bubblePanLimitX, bubblePanLimitX),
-                                        y = (bubblePan.y + dragAmount.y).coerceIn(-bubblePanLimitY, bubblePanLimitY)
+                                        x = (bubblePan.x + (dragAmount.x * bubblePanSpeed)).coerceIn(-bubblePanLimitX, bubblePanLimitX),
+                                        y = (bubblePan.y + (dragAmount.y * bubblePanSpeed)).coerceIn(-bubblePanLimitY, bubblePanLimitY)
                                     )
                                 }
                             }
@@ -1311,8 +1312,8 @@ private fun NotesScreen(
                             if (!showTray && notes.isNotEmpty()) {
                                 detectTransformGestures { _, pan, _, _ ->
                                     bubblePan = Offset(
-                                        x = (bubblePan.x + pan.x).coerceIn(-bubblePanLimitX, bubblePanLimitX),
-                                        y = (bubblePan.y + pan.y).coerceIn(-bubblePanLimitY, bubblePanLimitY)
+                                        x = (bubblePan.x + (pan.x * bubblePanSpeed)).coerceIn(-bubblePanLimitX, bubblePanLimitX),
+                                        y = (bubblePan.y + (pan.y * bubblePanSpeed)).coerceIn(-bubblePanLimitY, bubblePanLimitY)
                                     )
                                 }
                             }
