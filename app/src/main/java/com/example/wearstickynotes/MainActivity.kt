@@ -1013,12 +1013,12 @@ private fun NotesScreen(
     val previewCircleSize = (minScreenDp * 0.40f).coerceIn(72f, 108f).dp
     val previewPageWidthPx = with(LocalDensity.current) { previewCircleSize.toPx() }
     val noteDensityGrowth = ln(noteCount.toFloat() + 1f)
-    val bubbleSpaceWidthPx = screenWidthPx * (1.05f + (noteDensityGrowth * 0.34f))
-    val bubbleSpaceHeightPx = screenHeightPx * (1.12f + (noteDensityGrowth * 0.46f))
+    val bubbleSpaceWidthPx = screenWidthPx * (0.98f + (noteDensityGrowth * 0.28f))
+    val bubbleSpaceHeightPx = screenHeightPx * (1.05f + (noteDensityGrowth * 0.36f))
     val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
     val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
     val bubblePanSpeed = 2.8f
-    val bubbleDiameterScale = (1f - (((noteCount - 1).toFloat() / 40f) * 0.22f)).coerceIn(0.74f, 1f)
+    val bubbleDiameterScale = (0.92f - (((noteCount - 1).toFloat() / 42f) * 0.20f)).coerceIn(0.68f, 0.92f)
     val bubbleItemSize = previewCircleSize * bubbleDiameterScale
     val bubbleItemSizePx = with(LocalDensity.current) { bubbleItemSize.toPx() }
     val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx) {
@@ -1029,11 +1029,11 @@ private fun NotesScreen(
             val normalizedIndex = (index + 0.5f) / safeCount.toFloat()
             val theta = (index * 2.3999632f) + (random.nextFloat() * 0.24f)
             val radial = kotlin.math.sqrt(normalizedIndex)
-            val ellipseX = (bubbleSpaceWidthPx * 0.40f) * radial
-            val ellipseY = (bubbleSpaceHeightPx * 0.40f) * radial
+            val ellipseX = (bubbleSpaceWidthPx * 0.34f) * radial
+            val ellipseY = (bubbleSpaceHeightPx * 0.34f) * radial
             BubbleAnchor(
-                x = (cos(theta) * ellipseX) + ((random.nextFloat() - 0.5f) * bubbleItemSizePx * 0.12f),
-                y = (sin(theta) * ellipseY) + ((random.nextFloat() - 0.5f) * bubbleItemSizePx * 0.10f),
+                x = (cos(theta) * ellipseX) + ((random.nextFloat() - 0.5f) * bubbleItemSizePx * 0.08f),
+                y = (sin(theta) * ellipseY) + ((random.nextFloat() - 0.5f) * bubbleItemSizePx * 0.07f),
                 radiusScale = random.nextFloat()
             )
         }
