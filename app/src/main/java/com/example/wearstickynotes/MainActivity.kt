@@ -1006,28 +1006,33 @@ private fun NotesScreen(
     )
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
+    val noteCount = notes.size.coerceAtLeast(1)
     val screenWidthPx = with(LocalDensity.current) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() }
     val previewCircleSize = (minScreenDp * 0.40f).coerceIn(72f, 108f).dp
     val previewPageWidthPx = with(LocalDensity.current) { previewCircleSize.toPx() }
-    val bubbleSpaceWidthPx = screenWidthPx * 1.95f
-    val bubbleSpaceHeightPx = screenHeightPx * 2.15f
+    val noteDensityGrowth = ((noteCount - 1).toFloat() / 24f).coerceIn(0f, 1.8f)
+    val bubbleSpaceWidthPx = screenWidthPx * (1.18f + (noteDensityGrowth * 0.75f))
+    val bubbleSpaceHeightPx = screenHeightPx * (1.26f + (noteDensityGrowth * 0.95f))
     val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
     val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
     val bubblePanSpeed = 2.8f
+    val bubbleDiameterScale = (1f - (((noteCount - 1).toFloat() / 40f) * 0.22f)).coerceIn(0.74f, 1f)
+    val bubbleItemSize = previewCircleSize * bubbleDiameterScale
+    val bubbleItemSizePx = with(LocalDensity.current) { bubbleItemSize.toPx() }
     val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx) {
-        val safeCount = notes.size.coerceAtLeast(1)
+        val safeCount = noteCount
         notes.mapIndexed { index, note ->
             val seed = note.id.hashCode().toLong()
             val random = Random(seed)
             val normalizedIndex = (index + 0.5f) / safeCount.toFloat()
             val theta = (index * 2.3999632f) + (random.nextFloat() * 0.24f)
             val radial = kotlin.math.sqrt(normalizedIndex)
-            val ellipseX = (bubbleSpaceWidthPx * 0.43f) * radial
-            val ellipseY = (bubbleSpaceHeightPx * 0.43f) * radial
+            val ellipseX = (bubbleSpaceWidthPx * 0.40f) * radial
+            val ellipseY = (bubbleSpaceHeightPx * 0.40f) * radial
             BubbleAnchor(
-                x = (cos(theta) * ellipseX) + ((random.nextFloat() - 0.5f) * previewPageWidthPx * 0.18f),
-                y = (sin(theta) * ellipseY) + ((random.nextFloat() - 0.5f) * previewPageWidthPx * 0.16f),
+                x = (cos(theta) * ellipseX) + ((random.nextFloat() - 0.5f) * bubbleItemSizePx * 0.12f),
+                y = (sin(theta) * ellipseY) + ((random.nextFloat() - 0.5f) * bubbleItemSizePx * 0.10f),
                 radiusScale = random.nextFloat()
             )
         }
@@ -1370,7 +1375,7 @@ private fun NotesScreen(
                                         y = animatedY.roundToInt()
                                     )
                                 }
-                                .size(previewCircleSize)
+                                .size(bubbleItemSize)
                                 .graphicsLayer {
                                     scaleX = animatedScale
                                     scaleY = animatedScale
