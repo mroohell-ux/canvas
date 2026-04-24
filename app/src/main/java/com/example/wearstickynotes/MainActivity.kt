@@ -158,7 +158,7 @@ import kotlin.random.Random
 
 private const val DEBUG_TAG = "WearStickyNotes"
 private const val SWIPE_MIN_FLING_VELOCITY_PX = 650f
-private const val PREVIEW_MIN_FLING_VELOCITY_PX = 180f
+private const val PREVIEW_MIN_FLING_VELOCITY_PX = 45f
 private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2800f
 private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
@@ -1079,30 +1079,45 @@ private fun NotesScreen(
                 val velocityX = available.x
                 val absoluteVelocity = kotlin.math.abs(velocityX)
 
-                if (isPreviewMode && absoluteVelocity >= PREVIEW_MIN_FLING_VELOCITY_PX) {
-                    val travelDirection = if (velocityX < 0f) 1 else -1
-                    val momentumDistancePx = ((absoluteVelocity * 0.22f) + (previewPageWidthPx * 0.35f))
-                        .coerceIn(previewPageWidthPx * 0.45f, previewPageWidthPx * (SWIPE_MAX_PAGES_PER_FLING + 0.35f))
-                    val carryPages = (momentumDistancePx / previewPageWidthPx)
-                        .coerceIn(1f, SWIPE_MAX_PAGES_PER_FLING + 0.35f)
-                    val baseTargetPage = pagerState.targetPage
-                    val targetPage = baseTargetPage + (kotlin.math.ceil(carryPages).toInt() * travelDirection)
-                    val animationDurationMs = (520f - (absoluteVelocity / 20f))
-                        .coerceIn(180f, 420f)
-                        .toInt()
-
-                    Log.d(
-                        DEBUG_TAG,
-                        "Input signal: preview momentum fling velocityX=$velocityX carryPages=$carryPages target=$targetPage base=$baseTargetPage durationMs=$animationDurationMs"
-                    )
-
-                    scope.launch {
-                        pagerState.animateScrollToPage(
-                            page = targetPage,
-                            animationSpec = tween(durationMillis = animationDurationMs, easing = LinearOutSlowInEasing)
-                        )
+                if (isPreviewMode) {
+                    val offsetFraction = pagerState.currentPageOffsetFraction
+                    val dragDirection = when {
+                        offsetFraction > 0.04f -> 1
+                        offsetFraction < -0.04f -> -1
+                        else -> 0
                     }
-                    return available
+                    val velocityDirection = when {
+                        velocityX < -PREVIEW_MIN_FLING_VELOCITY_PX -> 1
+                        velocityX > PREVIEW_MIN_FLING_VELOCITY_PX -> -1
+                        else -> 0
+                    }
+                    val travelDirection = if (velocityDirection != 0) velocityDirection else dragDirection
+
+                    if (travelDirection != 0) {
+                        val momentumEnergy = absoluteVelocity + (abs(offsetFraction) * previewPageWidthPx * 2.4f)
+                        val momentumDistancePx = ((momentumEnergy * 0.34f) + (previewPageWidthPx * 0.52f))
+                            .coerceIn(previewPageWidthPx * 0.55f, previewPageWidthPx * (SWIPE_MAX_PAGES_PER_FLING + 0.8f))
+                        val carryPages = (momentumDistancePx / previewPageWidthPx)
+                            .coerceIn(1f, SWIPE_MAX_PAGES_PER_FLING + 0.8f)
+                        val baseTargetPage = pagerState.targetPage
+                        val targetPage = baseTargetPage + (kotlin.math.ceil(carryPages).toInt() * travelDirection)
+                        val animationDurationMs = (610f - (momentumEnergy / 14f))
+                            .coerceIn(230f, 520f)
+                            .toInt()
+
+                        Log.d(
+                            DEBUG_TAG,
+                            "Input signal: preview momentum fling velocityX=$velocityX offsetFraction=$offsetFraction carryPages=$carryPages target=$targetPage base=$baseTargetPage durationMs=$animationDurationMs"
+                        )
+
+                        scope.launch {
+                            pagerState.animateScrollToPage(
+                                page = targetPage,
+                                animationSpec = tween(durationMillis = animationDurationMs, easing = LinearOutSlowInEasing)
+                            )
+                        }
+                        return available
+                    }
                 }
 
                 if (absoluteVelocity < SWIPE_MIN_FLING_VELOCITY_PX) {
