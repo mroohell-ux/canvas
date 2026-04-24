@@ -83,6 +83,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
@@ -1027,6 +1028,13 @@ private fun NotesScreen(
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
         label = "trayScrimAlpha"
     )
+    val previewTransitionProgress = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(isPreviewMode) {
+        previewTransitionProgress.animateTo(
+            targetValue = if (isPreviewMode) 1f else 0f,
+            animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing)
+        )
+    }
     val previewCircleSize = (minScreenDp * 0.40f).coerceIn(72f, 108f).dp
     val screenWidthDp = configuration.screenWidthDp.dp
     val previewHorizontalPadding = ((screenWidthDp - previewCircleSize) / 2f).coerceAtLeast(0.dp)
@@ -1187,21 +1195,10 @@ private fun NotesScreen(
                 val pageNoteIndex = wrappedNoteIndex(page)
                 val note = notes[pageNoteIndex]
                 val pageDistance = abs((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
-                val previewScaleTarget = if (!isPreviewMode) {
-                    1f
-                } else {
-                    (0.96f - (pageDistance * 0.08f)).coerceIn(0.86f, 0.96f)
-                }
-                val previewScale by animateFloatAsState(
-                    targetValue = previewScaleTarget,
-                    animationSpec = spring(dampingRatio = 0.9f, stiffness = 360f),
-                    label = "previewScale"
-                )
-                val previewAlpha by animateFloatAsState(
-                    targetValue = if (isPreviewMode) (1f - (pageDistance * 0.16f)).coerceIn(0.58f, 1f) else 1f,
-                    animationSpec = spring(dampingRatio = 0.9f, stiffness = 440f),
-                    label = "previewAlpha"
-                )
+                val previewScaleWhenActive = (0.98f - (pageDistance * 0.10f)).coerceIn(0.86f, 0.98f)
+                val previewAlphaWhenActive = (1f - (pageDistance * 0.14f)).coerceIn(0.68f, 1f)
+                val previewScale = lerp(1f, previewScaleWhenActive, previewTransitionProgress.value)
+                val previewAlpha = lerp(1f, previewAlphaWhenActive, previewTransitionProgress.value)
                 val showBack = isNoteBackVisible(note.id)
                 val density = LocalDensity.current
                 val flipRotation by animateFloatAsState(
