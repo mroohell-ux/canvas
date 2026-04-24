@@ -37,7 +37,6 @@ import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.PaddingValues
@@ -98,6 +97,11 @@ import androidx.compose.ui.util.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.awaitEachGesture
+import androidx.compose.ui.input.pointer.awaitFirstDown
+import androidx.compose.ui.input.pointer.awaitPointerEvent
+import androidx.compose.ui.input.pointer.consume
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -1032,6 +1036,12 @@ private fun NotesScreen(
             )
         }
     }
+    fun updateBubblePan(deltaX: Float, deltaY: Float) {
+        bubblePan = Offset(
+            x = (bubblePan.x + (deltaX * bubblePanSpeed)).coerceIn(-bubblePanLimitX, bubblePanLimitX),
+            y = (bubblePan.y + (deltaY * bubblePanSpeed)).coerceIn(-bubblePanLimitY, bubblePanLimitY)
+        )
+    }
 
     val swipeAccelerationConnection = remember(pagerState, notes.size, isPreviewMode, previewPageWidthPx) {
         object : NestedScrollConnection {
@@ -1300,21 +1310,28 @@ private fun NotesScreen(
                         .clipToBounds()
                         .pointerInput(showTray, notes.size, isBubbleMode) {
                             if (!showTray && notes.isNotEmpty() && isBubbleMode) {
-                                detectDragGestures { _, dragAmount ->
-                                    bubblePan = Offset(
-                                        x = (bubblePan.x + (dragAmount.x * bubblePanSpeed)).coerceIn(-bubblePanLimitX, bubblePanLimitX),
-                                        y = (bubblePan.y + (dragAmount.y * bubblePanSpeed)).coerceIn(-bubblePanLimitY, bubblePanLimitY)
-                                    )
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    var pointerId = down.id
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val active = event.changes.firstOrNull { it.id == pointerId }
+                                            ?: event.changes.firstOrNull { it.pressed }?.also { pointerId = it.id }
+                                            ?: break
+                                        val delta = active.positionChange()
+                                        if (delta != Offset.Zero) {
+                                            updateBubblePan(delta.x, delta.y)
+                                            active.consume()
+                                        }
+                                        if (!active.pressed) break
+                                    }
                                 }
                             }
                         }
                         .pointerInput(showTray, notes.size, bubblePan, isBubbleMode) {
                             if (!showTray && notes.isNotEmpty()) {
                                 detectTransformGestures { _, pan, _, _ ->
-                                    bubblePan = Offset(
-                                        x = (bubblePan.x + (pan.x * bubblePanSpeed)).coerceIn(-bubblePanLimitX, bubblePanLimitX),
-                                        y = (bubblePan.y + (pan.y * bubblePanSpeed)).coerceIn(-bubblePanLimitY, bubblePanLimitY)
-                                    )
+                                    updateBubblePan(pan.x, pan.y)
                                 }
                             }
                         }
