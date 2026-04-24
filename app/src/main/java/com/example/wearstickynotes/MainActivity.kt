@@ -152,7 +152,6 @@ import kotlin.math.hypot
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.ln
 import kotlin.coroutines.resume
 import kotlin.random.Random
 
@@ -1016,22 +1015,23 @@ private fun NotesScreen(
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
     val noteCount = notes.size.coerceAtLeast(1)
+    val noteCountDensity = ((noteCount - 1).toFloat() / 99f).coerceIn(0f, 1f)
+    val densityCurve = kotlin.math.sqrt(noteCountDensity)
     val screenWidthPx = with(LocalDensity.current) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() }
     val previewCircleSize = (minScreenDp * 0.40f).coerceIn(72f, 108f).dp
     val previewPageWidthPx = with(LocalDensity.current) { previewCircleSize.toPx() }
-    val noteDensityGrowth = ln(noteCount.toFloat() + 1f)
-    val bubbleSpaceWidthPx = screenWidthPx * (1.15f + (noteDensityGrowth * 0.40f))
-    val bubbleSpaceHeightPx = screenHeightPx * (1.22f + (noteDensityGrowth * 0.48f))
+    val bubbleSpaceWidthPx = screenWidthPx * (0.98f + (densityCurve * 1.62f))
+    val bubbleSpaceHeightPx = screenHeightPx * (1.02f + (densityCurve * 1.86f))
     val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
     val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
     val bubblePanSpeed = 9.8f
-    val bubbleDiameterScale = (0.98f - (noteCount.toFloat() * 0.0052f)).coerceIn(0.42f, 0.92f)
+    val bubbleDiameterScale = (0.92f - (densityCurve * 0.46f)).coerceIn(0.44f, 0.92f)
     val bubbleItemSize = previewCircleSize * bubbleDiameterScale
     val bubbleItemSizePx = with(LocalDensity.current) { bubbleItemSize.toPx() }
     val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx, bubbleShuffleSeed) {
         val safeCount = noteCount
-        val minSpacing = (bubbleItemSizePx * 0.86f).coerceAtLeast(18f)
+        val minSpacing = (bubbleItemSizePx * (0.60f + (densityCurve * 0.24f))).coerceAtLeast(14f)
         val placedAnchors = mutableListOf<BubbleAnchor>()
         val arrangedNoteIndices = notes.indices.shuffled(Random(bubbleShuffleSeed.toLong()))
         notes.mapIndexed { index, note ->
