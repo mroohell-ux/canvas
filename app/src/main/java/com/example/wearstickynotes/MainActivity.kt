@@ -1019,7 +1019,7 @@ private fun NotesScreen(
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
         label = "trayScrimAlpha"
     )
-    val previewCircleSize = (minScreenDp * 0.34f).coerceIn(64f, 92f).dp
+    val previewCircleSize = (minScreenDp * 0.40f).coerceIn(72f, 108f).dp
     val screenWidthDp = configuration.screenWidthDp.dp
     val previewHorizontalPadding = ((screenWidthDp - previewCircleSize) / 2f).coerceAtLeast(0.dp)
 
@@ -1169,7 +1169,7 @@ private fun NotesScreen(
                     .fillMaxSize()
                     .nestedScroll(swipeAccelerationConnection),
                 pageSize = if (isPreviewMode) PageSize.Fixed(previewCircleSize) else PageSize.Fill,
-                pageSpacing = if (isPreviewMode) 4.dp else 0.dp,
+                pageSpacing = 0.dp,
                 contentPadding = if (isPreviewMode) {
                     PaddingValues(horizontal = previewHorizontalPadding)
                 } else {
@@ -1179,11 +1179,7 @@ private fun NotesScreen(
                 val pageNoteIndex = wrappedNoteIndex(page)
                 val note = notes[pageNoteIndex]
                 val pageDistance = abs((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
-                val previewScaleTarget = if (!isPreviewMode) {
-                    1f
-                } else {
-                    (0.9f - (pageDistance * 0.14f)).coerceIn(0.68f, 0.9f)
-                }
+                val previewScaleTarget = if (!isPreviewMode) 1f else 1f
                 val previewScale by animateFloatAsState(
                     targetValue = previewScaleTarget,
                     animationSpec = spring(dampingRatio = 0.88f, stiffness = 430f),
@@ -1377,6 +1373,15 @@ private fun NotesScreen(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = starBottomPadding)
                     .clickable { onToggleCollection(currentNoteId) }
+            )
+        } else {
+            Text(
+                text = "${wrappedNoteIndex(pagerState.currentPage) + 1}/${notes.size}",
+                color = Color.White.copy(alpha = 0.9f),
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 10.dp)
             )
         }
 
