@@ -1032,7 +1032,7 @@ private fun NotesScreen(
     LaunchedEffect(isPreviewMode) {
         previewTransitionProgress.animateTo(
             targetValue = if (isPreviewMode) 1f else 0f,
-            animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing)
+            animationSpec = spring(dampingRatio = 0.92f, stiffness = 180f)
         )
     }
     val previewCircleSize = (minScreenDp * 0.40f).coerceIn(72f, 108f).dp
@@ -1200,10 +1200,15 @@ private fun NotesScreen(
                 val previewScale = lerp(1f, previewScaleWhenActive, previewTransitionProgress.value)
                 val smoothedPreviewScale by animateFloatAsState(
                     targetValue = previewScale,
-                    animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                    animationSpec = spring(dampingRatio = 0.94f, stiffness = 220f),
                     label = "smoothedPreviewScale"
                 )
                 val previewAlpha = lerp(1f, previewAlphaWhenActive, previewTransitionProgress.value)
+                val smoothedPreviewAlpha by animateFloatAsState(
+                    targetValue = previewAlpha,
+                    animationSpec = spring(dampingRatio = 0.96f, stiffness = 240f),
+                    label = "smoothedPreviewAlpha"
+                )
                 val showBack = isNoteBackVisible(note.id)
                 val density = LocalDensity.current
                 val flipRotation by animateFloatAsState(
@@ -1236,7 +1241,7 @@ private fun NotesScreen(
                             cameraDistance = cardCameraDistancePx
                             scaleX = smoothedPreviewScale
                             scaleY = smoothedPreviewScale
-                            alpha = previewAlpha
+                            alpha = smoothedPreviewAlpha
                         }
                         .clip(RoundedCornerShape(999.dp))
                         .background(noteRadialGradient(note))
