@@ -14,7 +14,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.togetherWith
@@ -136,6 +138,7 @@ import kotlin.random.Random
 
 private const val DEBUG_TAG = "WearStickyNotes"
 private const val SWIPE_MIN_FLING_VELOCITY_PX = 650f
+private const val PREVIEW_MIN_FLING_VELOCITY_PX = 180f
 private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2800f
 private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
@@ -880,13 +883,26 @@ private fun FlowCircle(
     emphasisAlpha: Float,
     modifier: Modifier = Modifier
 ) {
-    val size = circleSize
-    val circleAlpha = emphasisAlpha
+    val size by animateDpAsState(
+        targetValue = circleSize,
+        animationSpec = spring(dampingRatio = 0.9f, stiffness = 240f),
+        label = "flowCircleSize"
+    )
+    val smoothedScale by animateFloatAsState(
+        targetValue = emphasisScale,
+        animationSpec = spring(dampingRatio = 0.9f, stiffness = 240f),
+        label = "flowCircleScale"
+    )
+    val circleAlpha by animateFloatAsState(
+        targetValue = emphasisAlpha,
+        animationSpec = spring(dampingRatio = 0.92f, stiffness = 260f),
+        label = "flowCircleAlpha"
+    )
     Box(
         modifier = modifier
             .graphicsLayer {
-                scaleX = emphasisScale
-                scaleY = emphasisScale
+                scaleX = smoothedScale
+                scaleY = smoothedScale
                 alpha = circleAlpha
             }
             .size(size)
@@ -971,13 +987,45 @@ private fun NotesScreen(
         initialPage = initialVirtualPage,
         pageCount = { if (notes.isEmpty()) 0 else Int.MAX_VALUE }
     )
-    val swipeAccelerationConnection = remember(pagerState, notes.size, isPreviewMode) {
+    val configuration = LocalConfiguration.current
+    val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
+    val previewCircleSize = (minScreenDp * 0.40f).coerceIn(72f, 108f).dp
+    val previewPageWidthPx = with(LocalDensity.current) { previewCircleSize.toPx() }
+
+    val swipeAccelerationConnection = remember(pagerState, notes.size, isPreviewMode, previewPageWidthPx) {
         object : NestedScrollConnection {
             override suspend fun onPreFling(available: Velocity): Velocity {
                 if (notes.isEmpty()) return Velocity.Zero
 
                 val velocityX = available.x
                 val absoluteVelocity = kotlin.math.abs(velocityX)
+
+                if (isPreviewMode && absoluteVelocity >= PREVIEW_MIN_FLING_VELOCITY_PX) {
+                    val travelDirection = if (velocityX < 0f) 1 else -1
+                    val momentumDistancePx = ((absoluteVelocity * 0.22f) + (previewPageWidthPx * 0.35f))
+                        .coerceIn(previewPageWidthPx * 0.45f, previewPageWidthPx * (SWIPE_MAX_PAGES_PER_FLING + 0.35f))
+                    val carryPages = (momentumDistancePx / previewPageWidthPx)
+                        .coerceIn(1f, SWIPE_MAX_PAGES_PER_FLING + 0.35f)
+                    val baseTargetPage = pagerState.targetPage
+                    val targetPage = baseTargetPage + (kotlin.math.ceil(carryPages).toInt() * travelDirection)
+                    val animationDurationMs = (520f - (absoluteVelocity / 20f))
+                        .coerceIn(180f, 420f)
+                        .toInt()
+
+                    Log.d(
+                        DEBUG_TAG,
+                        "Input signal: preview momentum fling velocityX=$velocityX carryPages=$carryPages target=$targetPage base=$baseTargetPage durationMs=$animationDurationMs"
+                    )
+
+                    scope.launch {
+                        pagerState.animateScrollToPage(
+                            page = targetPage,
+                            animationSpec = tween(durationMillis = animationDurationMs, easing = LinearOutSlowInEasing)
+                        )
+                    }
+                    return available
+                }
+
                 if (absoluteVelocity < SWIPE_MIN_FLING_VELOCITY_PX) {
                     // Tiny/accidental fling: let pager handle normal settle behavior.
                     return Velocity.Zero
@@ -1019,8 +1067,6 @@ private fun NotesScreen(
             }
         }
     }
-    val configuration = LocalConfiguration.current
-    val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
     val starFontSize = (minScreenDp * 0.075f).coerceIn(12f, 18f).sp
     val starBottomPadding = (minScreenDp * 0.045f).coerceIn(8f, 16f).dp
     val trayScrimAlpha by animateFloatAsState(
@@ -1035,7 +1081,6 @@ private fun NotesScreen(
             animationSpec = spring(dampingRatio = 0.92f, stiffness = 180f)
         )
     }
-    val previewCircleSize = (minScreenDp * 0.40f).coerceIn(72f, 108f).dp
     val screenWidthDp = configuration.screenWidthDp.dp
     val previewHorizontalPadding = ((screenWidthDp - previewCircleSize) / 2f).coerceAtLeast(0.dp)
 
