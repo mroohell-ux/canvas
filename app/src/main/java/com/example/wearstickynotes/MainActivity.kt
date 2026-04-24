@@ -1002,28 +1002,25 @@ private fun NotesScreen(
                 if (isPreviewMode && absoluteVelocity >= SWIPE_MIN_FLING_VELOCITY_PX) {
                     val travelDirection = if (velocityX < 0f) 1 else -1
                     val momentumDistancePx = ((absoluteVelocity * 0.22f) + (previewPageWidthPx * 0.35f))
-                        .coerceIn(previewPageWidthPx * 0.45f, previewPageWidthPx * SWIPE_MAX_PAGES_PER_FLING)
+                        .coerceIn(previewPageWidthPx * 0.45f, previewPageWidthPx * (SWIPE_MAX_PAGES_PER_FLING + 0.35f))
+                    val carryPages = (momentumDistancePx / previewPageWidthPx)
+                        .coerceIn(0.45f, SWIPE_MAX_PAGES_PER_FLING + 0.35f)
+                    val baseTargetPage = pagerState.targetPage
+                    val targetPage = baseTargetPage + (carryPages.roundToInt() * travelDirection)
                     val animationDurationMs = (520f - (absoluteVelocity / 20f))
                         .coerceIn(180f, 420f)
                         .toInt()
-                    val signedDistance = momentumDistancePx * travelDirection
 
                     Log.d(
                         DEBUG_TAG,
-                        "Input signal: preview momentum fling velocityX=$velocityX distancePx=$signedDistance durationMs=$animationDurationMs"
+                        "Input signal: preview momentum fling velocityX=$velocityX carryPages=$carryPages target=$targetPage base=$baseTargetPage durationMs=$animationDurationMs"
                     )
 
                     scope.launch {
-                        var lastValue = 0f
-                        androidx.compose.animation.core.animate(
-                            initialValue = 0f,
-                            targetValue = signedDistance,
+                        pagerState.animateScrollToPage(
+                            page = targetPage,
                             animationSpec = tween(durationMillis = animationDurationMs, easing = LinearOutSlowInEasing)
-                        ) { value, _ ->
-                            val delta = value - lastValue
-                            lastValue = value
-                            pagerState.scrollBy(delta)
-                        }
+                        )
                     }
                     return available
                 }
