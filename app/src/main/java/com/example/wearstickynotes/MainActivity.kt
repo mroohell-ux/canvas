@@ -1177,7 +1177,7 @@ private fun NotesScreen(
                     .fillMaxSize()
                     .nestedScroll(swipeAccelerationConnection),
                 pageSize = if (isPreviewMode) PageSize.Fixed(previewCircleSize) else PageSize.Fill,
-                pageSpacing = 0.dp,
+                pageSpacing = if (isPreviewMode) (-6).dp else 0.dp,
                 contentPadding = if (isPreviewMode) {
                     PaddingValues(horizontal = previewHorizontalPadding)
                 } else {
@@ -1248,6 +1248,10 @@ private fun NotesScreen(
                                 onTap = {
                                     Log.d(DEBUG_TAG, "Input signal: tap noteId=${note.id}, trayOpen=$showTray")
                                     if (!showTray && isPreviewMode) {
+                                        scope.launch {
+                                            pagerState.scrollToPage(page)
+                                            onSelectedIndexChange(pageNoteIndex)
+                                        }
                                         isPreviewMode = false
                                     } else if (!showTray) {
                                         onFlip(note.id)
