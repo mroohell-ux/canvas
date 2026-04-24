@@ -1017,7 +1017,7 @@ private fun NotesScreen(
     val bubbleSpaceHeightPx = screenHeightPx * (1.05f + (noteDensityGrowth * 0.36f))
     val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
     val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
-    val bubblePanSpeed = 2.8f
+    val bubblePanSpeed = 9.8f
     val bubbleDiameterScale = (0.92f - (((noteCount - 1).toFloat() / 42f) * 0.20f)).coerceIn(0.68f, 0.92f)
     val bubbleItemSize = previewCircleSize * bubbleDiameterScale
     val bubbleItemSizePx = with(LocalDensity.current) { bubbleItemSize.toPx() }
