@@ -1021,31 +1021,47 @@ private fun NotesScreen(
     val previewCircleSize = (minScreenDp * 0.40f).coerceIn(72f, 108f).dp
     val previewPageWidthPx = with(LocalDensity.current) { previewCircleSize.toPx() }
     val noteDensityGrowth = ln(noteCount.toFloat() + 1f)
-    val bubbleSpaceWidthPx = screenWidthPx * (0.98f + (noteDensityGrowth * 0.28f))
-    val bubbleSpaceHeightPx = screenHeightPx * (1.05f + (noteDensityGrowth * 0.36f))
+    val bubbleSpaceWidthPx = screenWidthPx * (1.15f + (noteDensityGrowth * 0.40f))
+    val bubbleSpaceHeightPx = screenHeightPx * (1.22f + (noteDensityGrowth * 0.48f))
     val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
     val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
     val bubblePanSpeed = 9.8f
-    val bubbleDiameterScale = (0.92f - (((noteCount - 1).toFloat() / 42f) * 0.20f)).coerceIn(0.68f, 0.92f)
+    val bubbleDiameterScale = (0.98f - (noteCount.toFloat() * 0.0052f)).coerceIn(0.42f, 0.92f)
     val bubbleItemSize = previewCircleSize * bubbleDiameterScale
     val bubbleItemSizePx = with(LocalDensity.current) { bubbleItemSize.toPx() }
     val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx, bubbleShuffleSeed) {
         val safeCount = noteCount
+        val minSpacing = (bubbleItemSizePx * 0.86f).coerceAtLeast(18f)
+        val placedAnchors = mutableListOf<BubbleAnchor>()
         val arrangedNoteIndices = notes.indices.shuffled(Random(bubbleShuffleSeed.toLong()))
         notes.mapIndexed { index, note ->
             val arrangedIndex = arrangedNoteIndices[index]
             val seed = note.id.hashCode().toLong() xor bubbleShuffleSeed.toLong()
             val random = Random(seed)
             val normalizedIndex = (arrangedIndex + 0.5f) / safeCount.toFloat()
-            val theta = (arrangedIndex * 2.3999632f) + (random.nextFloat() * 0.24f)
-            val radial = kotlin.math.sqrt(normalizedIndex)
-            val ellipseX = (bubbleSpaceWidthPx * 0.34f) * radial
-            val ellipseY = (bubbleSpaceHeightPx * 0.34f) * radial
-            BubbleAnchor(
-                x = (cos(theta) * ellipseX) + ((random.nextFloat() - 0.5f) * bubbleItemSizePx * 0.08f),
-                y = (sin(theta) * ellipseY) + ((random.nextFloat() - 0.5f) * bubbleItemSizePx * 0.07f),
-                radiusScale = random.nextFloat()
-            )
+            var bestCandidate = BubbleAnchor(0f, 0f, random.nextFloat())
+            var bestDistance = Float.NEGATIVE_INFINITY
+            repeat(26) { attempt ->
+                val theta = (arrangedIndex * 2.3999632f) + (attempt * 0.58f) + (random.nextFloat() * 0.24f)
+                val radial = kotlin.math.sqrt(normalizedIndex) + (attempt * 0.012f)
+                val ellipseX = (bubbleSpaceWidthPx * 0.38f) * radial.coerceAtMost(1.22f)
+                val ellipseY = (bubbleSpaceHeightPx * 0.38f) * radial.coerceAtMost(1.22f)
+                val candidate = BubbleAnchor(
+                    x = (cos(theta) * ellipseX) + ((random.nextFloat() - 0.5f) * bubbleItemSizePx * 0.06f),
+                    y = (sin(theta) * ellipseY) + ((random.nextFloat() - 0.5f) * bubbleItemSizePx * 0.06f),
+                    radiusScale = random.nextFloat()
+                )
+                val nearestDistance = placedAnchors.minOfOrNull { placed ->
+                    hypot(candidate.x - placed.x, candidate.y - placed.y)
+                } ?: Float.MAX_VALUE
+                if (nearestDistance > bestDistance) {
+                    bestDistance = nearestDistance
+                    bestCandidate = candidate
+                }
+                if (nearestDistance >= minSpacing) return@repeat
+            }
+            placedAnchors += bestCandidate
+            bestCandidate
         }
     }
     fun updateBubblePan(deltaX: Float, deltaY: Float) {
@@ -1362,6 +1378,21 @@ private fun NotesScreen(
             contentAlignment = Alignment.Center
         ) {
             if (isBubbleMode) {
+                val bubbleFontSize = when {
+                    noteCount >= 90 -> 8.sp
+                    noteCount >= 50 -> 9.sp
+                    else -> 10.sp
+                }
+                val bubbleLineHeight = when {
+                    noteCount >= 90 -> 10.sp
+                    noteCount >= 50 -> 11.sp
+                    else -> 12.sp
+                }
+                val bubbleSnippetLimit = when {
+                    noteCount >= 90 -> 16
+                    noteCount >= 50 -> 20
+                    else -> 28
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1399,8 +1430,21 @@ private fun NotesScreen(
                             ),
                             label = "bubbleDrift$index"
                         )
-                        val driftX = (cos(driftProgress + (anchor.radiusScale * PI).toFloat()) * (8f + anchor.radiusScale * 12f)).toFloat()
-                        val driftY = (sin(driftProgress + (index * 0.55f)) * (6f + anchor.radiusScale * 10f)).toFloat()
+                        val driftAmplitudeScale = when {
+                            noteCount >= 90 -> 0.45f
+                            noteCount >= 50 -> 0.65f
+                            else -> 1f
+                        }
+                        val driftX = (
+                            cos(driftProgress + (anchor.radiusScale * PI).toFloat()) *
+                                (8f + anchor.radiusScale * 12f) *
+                                driftAmplitudeScale
+                            ).toFloat()
+                        val driftY = (
+                            sin(driftProgress + (index * 0.55f)) *
+                                (6f + anchor.radiusScale * 10f) *
+                                driftAmplitudeScale
+                            ).toFloat()
                         val animatedScale by animateFloatAsState(
                             targetValue = targetScale,
                             animationSpec = spring(dampingRatio = 0.84f, stiffness = 140f),
@@ -1421,7 +1465,8 @@ private fun NotesScreen(
                             animationSpec = tween(durationMillis = 420),
                             label = "bubbleAlpha$index"
                         )
-                        val snippet = note.front.text.replace("\n", " ").trim()
+                        val snippetSource = note.cardTitle.ifBlank { note.front.text }
+                        val snippet = snippetSource.replace("\n", " ").trim()
 
                         Box(
                             modifier = Modifier
@@ -1449,10 +1494,10 @@ private fun NotesScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = snippet.take(40) + if (snippet.length > 40) "…" else "",
+                                text = snippet.take(bubbleSnippetLimit) + if (snippet.length > bubbleSnippetLimit) "…" else "",
                                 color = Color(0xFFF2F6FB),
-                                fontSize = 10.sp,
-                                lineHeight = 12.sp,
+                                fontSize = bubbleFontSize,
+                                lineHeight = bubbleLineHeight,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(horizontal = 12.dp)
                             )
@@ -1955,217 +2000,51 @@ private fun parseManualAddress(value: String): ConnectionTarget? {
     return ConnectionTarget(host, port)
 }
 
-private fun defaultStickyNotes(): List<StickyNote> = listOf(
-    StickyNote(
-        id = "101",
-        flowId = 1,
-        flowName = "Daily",
-        cardId = 11,
-        cardTitle = "Morning Plan",
-        color = "#34C79A",
-        rotation = -2.5,
-        front = NoteSide(label = "front", text = "Drink water before breakfast"),
-        back = NoteSide(label = "back", text = "Finish about 500ml water before your first coffee so your energy is steadier through the morning.Finish about 500ml water before your first coffee so your energy is steadier through the morning.Finish about 500ml water before your first coffee so your energy is steadier through the morning.Finish about 500ml water before your first coffee so your energy is steadier through the morning.")
-    ),
-    StickyNote(
-        id = "102",
-        flowId = 1,
-        flowName = "Daily",
-        cardId = 12,
-        cardTitle = "Mobility",
-        color = "#2F86FF",
-        rotation = 1.0,
-        front = NoteSide(label = "front", text = "10-minute stretch reset"),
-        back = NoteSide(label = "back", text = "Slowly stretch your neck, shoulders, hamstrings, and calves for ten minutes to reduce stiffness after sitting.")
-    ),
-    StickyNote(
-        id = "103",
-        flowId = 2,
-        flowName = "Focus",
-        cardId = 21,
-        cardTitle = "Deep Work",
-        color = "#8A7CFF",
-        rotation = -1.0,
-        front = NoteSide(label = "front", text = "Start one focused block"),
-        back = NoteSide(label = "back", text = "Put your phone away and do one uninterrupted 25-minute block. Tiny wins build momentum faster than waiting for motivation.")
-    ),
-    StickyNote(
-        id = "104",
-        flowId = 3,
-        flowName = "Health",
-        cardId = 31,
-        cardTitle = "Bedtime",
-        color = "#3EBE76",
-        rotation = 0.5,
-        front = NoteSide(label = "front", text = "Sleep window tonight"),
-        back = NoteSide(label = "back", text = "Try to go to sleep between 10:30 PM and 11:00 PM. Keep lights dim 30 minutes before bed to help melatonin rise.")
-    ),
-    StickyNote(
-        id = "105",
-        flowId = 4,
-        flowName = "Learning",
-        cardId = 41,
-        cardTitle = "Language",
-        color = "#E07A2E",
-        rotation = -0.3,
-        front = NoteSide(label = "front", text = "Review 5 new phrases"),
-        back = NoteSide(label = "back", text = "Read each phrase out loud twice, then use it in a short sentence. Active recall beats passive rereading.")
-    ),
-    StickyNote(
-        id = "106",
-        flowId = 5,
-        flowName = "Career",
-        cardId = 51,
-        cardTitle = "Weekly Planning",
-        color = "#4AA3A1",
-        rotation = 0.8,
-        front = NoteSide(label = "front", text = "Define top 3 outcomes"),
-        back = NoteSide(label = "back", text = "Before Monday starts, define the top three outcomes for the week and translate each outcome into one concrete action you can finish in under one hour.")
-    ),
-    StickyNote(
-        id = "107",
-        flowId = 5,
-        flowName = "Career",
-        cardId = 52,
-        cardTitle = "Communication",
-        color = "#6A89FF",
-        rotation = -0.7,
-        front = NoteSide(label = "front", text = "Write clearer updates"),
-        back = NoteSide(label = "back", text = "When posting an update, include context, current status, blockers, and the next step with an owner, so teammates can respond quickly without back-and-forth questions.")
-    ),
-    StickyNote(
-        id = "108",
-        flowId = 6,
-        flowName = "Mindset",
-        cardId = 61,
-        cardTitle = "Evening Reflection",
-        color = "#A06BE5",
-        rotation = 0.4,
-        front = NoteSide(label = "front", text = "Reflect in three lines"),
-        back = NoteSide(label = "back", text = "At night, write three short lines: one win from today, one lesson you learned, and one tiny improvement for tomorrow. This keeps progress visible and sustainable.")
-    ),
-    StickyNote(
-        id = "109",
-        flowId = 2,
-        flowName = "Focus",
-        cardId = 22,
-        cardTitle = "Planning",
-        color = "#6F6BFF",
-        rotation = -0.2,
-        front = NoteSide(label = "front", text = "Pick one MIT"),
-        back = NoteSide(label = "back", text = "Before opening chat apps, write one most important task and block 40 minutes for it.")
-    ),
-    StickyNote(
-        id = "110",
-        flowId = 3,
-        flowName = "Health",
-        cardId = 32,
-        cardTitle = "Hydration",
-        color = "#32B88A",
-        rotation = 0.9,
-        front = NoteSide(label = "front", text = "Refill water bottle"),
-        back = NoteSide(label = "back", text = "Keep a 600ml bottle nearby and refill twice during the workday.")
-    ),
-    StickyNote(
-        id = "111",
-        flowId = 4,
-        flowName = "Learning",
-        cardId = 42,
-        cardTitle = "Reading",
-        color = "#E0933A",
-        rotation = -0.6,
-        front = NoteSide(label = "front", text = "Read 8 pages"),
-        back = NoteSide(label = "back", text = "Read just eight pages and write one sentence about what stood out.")
-    ),
-    StickyNote(
-        id = "112",
-        flowId = 7,
-        flowName = "Finance",
-        cardId = 71,
-        cardTitle = "Budget",
-        color = "#3EA8D8",
-        rotation = 0.2,
-        front = NoteSide(label = "front", text = "Log today's expense"),
-        back = NoteSide(label = "back", text = "Track at least one purchase each day so spending stays visible.")
-    ),
-    StickyNote(
-        id = "113",
-        flowId = 7,
-        flowName = "Finance",
-        cardId = 72,
-        cardTitle = "Savings",
-        color = "#2E87C4",
-        rotation = -0.4,
-        front = NoteSide(label = "front", text = "Auto-transfer 5%"),
-        back = NoteSide(label = "back", text = "Set an automatic transfer to savings right after income arrives.")
-    ),
-    StickyNote(
-        id = "114",
-        flowId = 8,
-        flowName = "Home",
-        cardId = 81,
-        cardTitle = "Declutter",
-        color = "#B46E3F",
-        rotation = 0.5,
-        front = NoteSide(label = "front", text = "Clear one surface"),
-        back = NoteSide(label = "back", text = "Choose one small area and reset it fully in under ten minutes.")
-    ),
-    StickyNote(
-        id = "115",
-        flowId = 8,
-        flowName = "Home",
-        cardId = 82,
-        cardTitle = "Maintenance",
-        color = "#C48D54",
-        rotation = -1.1,
-        front = NoteSide(label = "front", text = "Do one tiny fix"),
-        back = NoteSide(label = "back", text = "Repair one minor issue today to avoid bigger chores later.")
-    ),
-    StickyNote(
-        id = "116",
-        flowId = 9,
-        flowName = "Travel",
-        cardId = 91,
-        cardTitle = "Checklist",
-        color = "#4C8BFF",
-        rotation = 0.3,
-        front = NoteSide(label = "front", text = "Update packing list"),
-        back = NoteSide(label = "back", text = "Add one frequently forgotten item while it's still fresh in memory.")
-    ),
-    StickyNote(
-        id = "117",
-        flowId = 9,
-        flowName = "Travel",
-        cardId = 92,
-        cardTitle = "Documents",
-        color = "#6B9DFF",
-        rotation = -0.9,
-        front = NoteSide(label = "front", text = "Check passport expiry"),
-        back = NoteSide(label = "back", text = "Confirm key document expiry dates at least six months ahead.")
-    ),
-    StickyNote(
-        id = "118",
-        flowId = 10,
-        flowName = "Creativity",
-        cardId = 101,
-        cardTitle = "Sketch",
-        color = "#9E68E1",
-        rotation = 0.7,
-        front = NoteSide(label = "front", text = "Draw 1 thumbnail"),
-        back = NoteSide(label = "back", text = "Spend five minutes sketching one rough idea without judging quality.")
-    ),
-    StickyNote(
-        id = "119",
-        flowId = 10,
-        flowName = "Creativity",
-        cardId = 102,
-        cardTitle = "Capture",
-        color = "#B07DF0",
-        rotation = -0.5,
-        front = NoteSide(label = "front", text = "Capture 3 ideas"),
-        back = NoteSide(label = "back", text = "Write three imperfect ideas quickly; quantity unlocks quality.")
+private fun defaultStickyNotes(): List<StickyNote> {
+    val flows = listOf(
+        1L to "Daily",
+        2L to "Focus",
+        3L to "Health",
+        4L to "Learning",
+        5L to "Career",
+        6L to "Mindset",
+        7L to "Finance",
+        8L to "Home",
+        9L to "Travel",
+        10L to "Creativity"
     )
-)
+    val titlePool = listOf(
+        "Morning Reset", "Deep Work Sprint", "Stretch Break", "Hydration Check", "Inbox Cleanup",
+        "Weekly Plan", "Language Drill", "Budget Snapshot", "Declutter Desk", "Idea Capture"
+    )
+    val actionPool = listOf(
+        "Take one concrete step before opening distractions.",
+        "Do this for 10 focused minutes and record progress.",
+        "Keep this short and repeat it daily for consistency.",
+        "Share a quick update with a teammate or friend.",
+        "Write one sentence about what improved after finishing."
+    )
+    val palette = listOf(
+        "#34C79A", "#2F86FF", "#8A7CFF", "#3EBE76", "#E07A2E",
+        "#4AA3A1", "#6A89FF", "#A06BE5", "#3EA8D8", "#B46E3F"
+    )
+    return (1..100).map { index ->
+        val flow = flows[(index - 1) % flows.size]
+        val title = titlePool[(index - 1) % titlePool.size]
+        val action = actionPool[(index - 1) % actionPool.size]
+        StickyNote(
+            id = (1000 + index).toString(),
+            flowId = flow.first,
+            flowName = flow.second,
+            cardId = (flow.first * 100) + index,
+            cardTitle = "$title #$index",
+            color = palette[(index - 1) % palette.size],
+            rotation = (((index % 7) - 3) * 0.35),
+            front = NoteSide(label = "front", text = "$title #$index"),
+            back = NoteSide(label = "back", text = "Test note $index. $action")
+        )
+    }
+}
 
 private fun parseBaseColor(value: String): Color {
     val normalized = if (value.length == 7) "#FF${value.removePrefix("#")}" else value
