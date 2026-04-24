@@ -37,6 +37,7 @@ import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.PaddingValues
@@ -1296,6 +1297,16 @@ private fun NotesScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .clipToBounds()
+                        .pointerInput(showTray, notes.size, isBubbleMode) {
+                            if (!showTray && notes.isNotEmpty() && isBubbleMode) {
+                                detectDragGestures { _, dragAmount ->
+                                    bubblePan = Offset(
+                                        x = (bubblePan.x + dragAmount.x).coerceIn(-bubblePanLimitX, bubblePanLimitX),
+                                        y = (bubblePan.y + dragAmount.y).coerceIn(-bubblePanLimitY, bubblePanLimitY)
+                                    )
+                                }
+                            }
+                        }
                         .pointerInput(showTray, notes.size, bubblePan, isBubbleMode) {
                             if (!showTray && notes.isNotEmpty()) {
                                 detectTransformGestures { _, pan, _, _ ->
