@@ -16,6 +16,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -1324,8 +1325,8 @@ private fun NotesScreen(
                             ),
                             label = "bubbleDrift$index"
                         )
-                        val driftX = cos(driftProgress + (anchor.radiusScale * PI).toFloat()) * (8f + anchor.radiusScale * 12f)
-                        val driftY = sin(driftProgress + (index * 0.55f)) * (6f + anchor.radiusScale * 10f)
+                        val driftX = (cos(driftProgress + (anchor.radiusScale * PI).toFloat()) * (8f + anchor.radiusScale * 12f)).toFloat()
+                        val driftY = (sin(driftProgress + (index * 0.55f)) * (6f + anchor.radiusScale * 10f)).toFloat()
                         val animatedScale by animateFloatAsState(
                             targetValue = targetScale,
                             animationSpec = spring(dampingRatio = 0.84f, stiffness = 140f),
