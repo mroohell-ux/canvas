@@ -1198,6 +1198,11 @@ private fun NotesScreen(
                 val previewScaleWhenActive = (0.98f - (pageDistance * 0.10f)).coerceIn(0.86f, 0.98f)
                 val previewAlphaWhenActive = (1f - (pageDistance * 0.14f)).coerceIn(0.68f, 1f)
                 val previewScale = lerp(1f, previewScaleWhenActive, previewTransitionProgress.value)
+                val smoothedPreviewScale by animateFloatAsState(
+                    targetValue = previewScale,
+                    animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                    label = "smoothedPreviewScale"
+                )
                 val previewAlpha = lerp(1f, previewAlphaWhenActive, previewTransitionProgress.value)
                 val showBack = isNoteBackVisible(note.id)
                 val density = LocalDensity.current
@@ -1229,8 +1234,8 @@ private fun NotesScreen(
                         .graphicsLayer {
                             rotationY = flipRotation
                             cameraDistance = cardCameraDistancePx
-                            scaleX = previewScale
-                            scaleY = previewScale
+                            scaleX = smoothedPreviewScale
+                            scaleY = smoothedPreviewScale
                             alpha = previewAlpha
                         }
                         .clip(RoundedCornerShape(999.dp))
