@@ -138,6 +138,7 @@ import kotlin.random.Random
 
 private const val DEBUG_TAG = "WearStickyNotes"
 private const val SWIPE_MIN_FLING_VELOCITY_PX = 650f
+private const val PREVIEW_MIN_FLING_VELOCITY_PX = 180f
 private const val SWIPE_ACCEL_VELOCITY_2_PAGES = 2800f
 private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
@@ -999,14 +1000,14 @@ private fun NotesScreen(
                 val velocityX = available.x
                 val absoluteVelocity = kotlin.math.abs(velocityX)
 
-                if (isPreviewMode && absoluteVelocity >= SWIPE_MIN_FLING_VELOCITY_PX) {
+                if (isPreviewMode && absoluteVelocity >= PREVIEW_MIN_FLING_VELOCITY_PX) {
                     val travelDirection = if (velocityX < 0f) 1 else -1
                     val momentumDistancePx = ((absoluteVelocity * 0.22f) + (previewPageWidthPx * 0.35f))
                         .coerceIn(previewPageWidthPx * 0.45f, previewPageWidthPx * (SWIPE_MAX_PAGES_PER_FLING + 0.35f))
                     val carryPages = (momentumDistancePx / previewPageWidthPx)
-                        .coerceIn(0.45f, SWIPE_MAX_PAGES_PER_FLING + 0.35f)
+                        .coerceIn(1f, SWIPE_MAX_PAGES_PER_FLING + 0.35f)
                     val baseTargetPage = pagerState.targetPage
-                    val targetPage = baseTargetPage + (carryPages.roundToInt() * travelDirection)
+                    val targetPage = baseTargetPage + (kotlin.math.ceil(carryPages).toInt() * travelDirection)
                     val animationDurationMs = (520f - (absoluteVelocity / 20f))
                         .coerceIn(180f, 420f)
                         .toInt()
