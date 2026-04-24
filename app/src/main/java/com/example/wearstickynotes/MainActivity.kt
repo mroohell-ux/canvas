@@ -970,7 +970,7 @@ private fun NotesScreen(
         initialPage = initialVirtualPage,
         pageCount = { if (notes.isEmpty()) 0 else Int.MAX_VALUE }
     )
-    val swipeAccelerationConnection = remember(pagerState, notes.size) {
+    val swipeAccelerationConnection = remember(pagerState, notes.size, isPreviewMode) {
         object : NestedScrollConnection {
             override suspend fun onPreFling(available: Velocity): Velocity {
                 if (notes.isEmpty()) return Velocity.Zero
@@ -996,13 +996,21 @@ private fun NotesScreen(
                 val direction = if (velocityX < 0f) 1 else -1
                 val targetPage = baseTargetPage + (extraPagesByVelocity * direction)
                 val pagesSkipped = kotlin.math.abs(targetPage - pagerState.currentPage)
+                val animationDurationMs = (420f - (absoluteVelocity / 18f))
+                    .coerceIn(120f, if (isPreviewMode) 360f else 420f)
+                    .toInt()
 
                 if (targetPage != baseTargetPage && pagesSkipped <= SWIPE_MAX_PAGES_PER_FLING) {
                     Log.d(
                         DEBUG_TAG,
                         "Input signal: fling velocityX=$velocityX base=$baseTargetPage extra=$extraPagesByVelocity target=$targetPage from=${pagerState.currentPage}"
                     )
-                    scope.launch { pagerState.animateScrollToPage(targetPage) }
+                    scope.launch {
+                        pagerState.animateScrollToPage(
+                            page = targetPage,
+                            animationSpec = tween(durationMillis = animationDurationMs, easing = FastOutSlowInEasing)
+                        )
+                    }
                     return available
                 }
 
@@ -1179,10 +1187,14 @@ private fun NotesScreen(
                 val pageNoteIndex = wrappedNoteIndex(page)
                 val note = notes[pageNoteIndex]
                 val pageDistance = abs((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
-                val previewScaleTarget = if (!isPreviewMode) 1f else 1f
+                val previewScaleTarget = if (!isPreviewMode) {
+                    1f
+                } else {
+                    (0.96f - (pageDistance * 0.08f)).coerceIn(0.86f, 0.96f)
+                }
                 val previewScale by animateFloatAsState(
                     targetValue = previewScaleTarget,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 430f),
+                    animationSpec = spring(dampingRatio = 0.9f, stiffness = 360f),
                     label = "previewScale"
                 )
                 val previewAlpha by animateFloatAsState(
