@@ -1019,8 +1019,9 @@ private fun NotesScreen(
         animationSpec = spring(dampingRatio = 0.86f, stiffness = 480f),
         label = "trayScrimAlpha"
     )
-    val previewCircleSize = (minScreenDp * 0.28f).coerceIn(56f, 78f).dp
-    val previewHorizontalPadding = (minScreenDp * 0.07f).coerceIn(10f, 22f).dp
+    val previewCircleSize = (minScreenDp * 0.34f).coerceIn(64f, 92f).dp
+    val screenWidthDp = configuration.screenWidthDp.dp
+    val previewHorizontalPadding = ((screenWidthDp - previewCircleSize) / 2f).coerceAtLeast(0.dp)
 
     LaunchedEffect(notes.size, showTray) {
         if (!showTray && notes.isNotEmpty()) {
@@ -1168,7 +1169,7 @@ private fun NotesScreen(
                     .fillMaxSize()
                     .nestedScroll(swipeAccelerationConnection),
                 pageSize = if (isPreviewMode) PageSize.Fixed(previewCircleSize) else PageSize.Fill,
-                pageSpacing = if (isPreviewMode) 10.dp else 0.dp,
+                pageSpacing = if (isPreviewMode) 4.dp else 0.dp,
                 contentPadding = if (isPreviewMode) {
                     PaddingValues(horizontal = previewHorizontalPadding)
                 } else {
@@ -1365,17 +1366,7 @@ private fun NotesScreen(
             }
         }
 
-        if (isPreviewMode) {
-            Text(
-                text = "Preview mode • swipe to browse • tap a note to exit",
-                color = Color.White.copy(alpha = 0.85f),
-                fontSize = 10.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 18.dp)
-            )
-        } else {
+        if (!isPreviewMode) {
             val currentNoteId = notes[wrappedNoteIndex(pagerState.currentPage)].id
             val isInCollection = isNoteInCollection(currentNoteId)
             Text(
