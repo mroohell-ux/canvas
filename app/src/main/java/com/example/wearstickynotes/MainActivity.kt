@@ -36,6 +36,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -97,11 +98,6 @@ import androidx.compose.ui.util.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.awaitEachGesture
-import androidx.compose.ui.input.pointer.awaitFirstDown
-import androidx.compose.ui.input.pointer.awaitPointerEvent
-import androidx.compose.ui.input.pointer.consume
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -1310,21 +1306,8 @@ private fun NotesScreen(
                         .clipToBounds()
                         .pointerInput(showTray, notes.size, isBubbleMode) {
                             if (!showTray && notes.isNotEmpty() && isBubbleMode) {
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    var pointerId = down.id
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        val active = event.changes.firstOrNull { it.id == pointerId }
-                                            ?: event.changes.firstOrNull { it.pressed }?.also { pointerId = it.id }
-                                            ?: break
-                                        val delta = active.positionChange()
-                                        if (delta != Offset.Zero) {
-                                            updateBubblePan(delta.x, delta.y)
-                                            active.consume()
-                                        }
-                                        if (!active.pressed) break
-                                    }
+                                detectDragGestures { _, dragAmount ->
+                                    updateBubblePan(dragAmount.x, dragAmount.y)
                                 }
                             }
                         }
