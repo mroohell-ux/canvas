@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -129,6 +130,8 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.PI
 import kotlin.coroutines.resume
 import kotlin.random.Random
 
@@ -1219,6 +1222,12 @@ private fun NotesScreen(
                 val text = visibleSide.text
                 val label = visibleSide.label
                 val cardCameraDistancePx = with(density) { 28.dp.toPx() }
+                val flipProgress = flipRotation / 180f
+                val pickupPulse = (1f - (abs(flipProgress - 0.22f) / 0.22f)).coerceIn(0f, 1f)
+                val settlePulse = (1f - (abs(flipProgress - 0.90f) / 0.20f)).coerceIn(0f, 1f)
+                val innerLift = (8f * pickupPulse) + (3f * settlePulse)
+                val glowStrength = (0.10f + (0.32f * pickupPulse) + (0.12f * settlePulse)).coerceIn(0.08f, 0.52f)
+                val edgeThinness = abs(cos(flipRotation * (PI.toFloat() / 180f))).coerceIn(0.08f, 1f)
 
                 LaunchedEffect(note.id, showBack, textScale) {
                     noteScrollState.scrollTo(0)
@@ -1227,27 +1236,67 @@ private fun NotesScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer {
-                            rotationY = flipRotation
-                            cameraDistance = cardCameraDistancePx
-                        }
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(noteRadialGradient(note))
-                        .pointerInput(note.id, showTray) {
-                            detectTapGestures(
-                                onTap = {
-                                    Log.d(DEBUG_TAG, "Input signal: tap noteId=${note.id}, trayOpen=$showTray")
-                                    if (!showTray) {
-                                        onFlip(note.id)
-                                    }
-                                }
-                            )
-                        },
+                        .padding(8.dp),
                     contentAlignment = Alignment.Center
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape)
+                            .background(
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        Color(0xFF384454),
+                                        Color(0xFF273240),
+                                        Color(0xFF1B232F)
+                                    )
+                                )
+                            )
+                    )
+
                     BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxSize()
+                            .padding(12.dp)
+                            .offset { IntOffset(0, -with(density) { innerLift.dp.roundToPx() }) }
+                            .graphicsLayer {
+                                rotationY = flipRotation
+                                cameraDistance = cardCameraDistancePx
+                                scaleX = edgeThinness
+                                shadowElevation = with(density) { (8f + (10f * pickupPulse) + (5f * settlePulse)).dp.toPx() }
+                                shape = CircleShape
+                                clip = true
+                            }
+                            .clip(CircleShape)
+                            .background(noteRadialGradient(note))
+                            .pointerInput(note.id, showTray) {
+                                detectTapGestures(
+                                    onTap = {
+                                        Log.d(DEBUG_TAG, "Input signal: tap noteId=${note.id}, trayOpen=$showTray")
+                                        if (!showTray) {
+                                            onFlip(note.id)
+                                        }
+                                    }
+                                )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(
+                                            Color(0xAA8F4BFF).copy(alpha = glowStrength),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
+                        )
+
+                        BoxWithConstraints(
+                            modifier = Modifier
+                                .fillMaxSize()
                             .graphicsLayer {
                                 rotationY = if (showingBackFace) 180f else 0f
                             }
