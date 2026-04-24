@@ -146,6 +146,7 @@ import kotlin.math.hypot
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.ln
 import kotlin.coroutines.resume
 import kotlin.random.Random
 
@@ -1011,9 +1012,9 @@ private fun NotesScreen(
     val screenHeightPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() }
     val previewCircleSize = (minScreenDp * 0.40f).coerceIn(72f, 108f).dp
     val previewPageWidthPx = with(LocalDensity.current) { previewCircleSize.toPx() }
-    val noteDensityGrowth = ((noteCount - 1).toFloat() / 24f).coerceIn(0f, 1.8f)
-    val bubbleSpaceWidthPx = screenWidthPx * (1.18f + (noteDensityGrowth * 0.75f))
-    val bubbleSpaceHeightPx = screenHeightPx * (1.26f + (noteDensityGrowth * 0.95f))
+    val noteDensityGrowth = ln(noteCount.toFloat() + 1f)
+    val bubbleSpaceWidthPx = screenWidthPx * (1.05f + (noteDensityGrowth * 0.34f))
+    val bubbleSpaceHeightPx = screenHeightPx * (1.12f + (noteDensityGrowth * 0.46f))
     val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
     val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
     val bubblePanSpeed = 2.8f
