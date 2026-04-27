@@ -164,7 +164,6 @@ private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
 private const val GENERIC_SCROLL_PAGE_THRESHOLD = 1f
 private const val MAX_VISIBLE_BUBBLE_NOTES = 12
-private const val DEFAULT_NOTES_COUNT = 19
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -188,13 +187,18 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     val storageJson = remember { Json { ignoreUnknownKeys = true } }
 
     val initialNotes = remember(prefs, storageJson) {
-        runCatching {
+        val savedNotes = runCatching {
             prefs.getString("notes_payload", null)
                 ?.takeIf { it.isNotBlank() }
                 ?.let { storageJson.decodeFromString<List<StickyNote>>(it) }
         }.getOrNull()
             ?.takeIf { it.isNotEmpty() }
-            ?: defaultStickyNotes()
+
+        when {
+            savedNotes == null -> defaultStickyNotes()
+            isLegacyBuiltInTestSet(savedNotes) -> defaultStickyNotes()
+            else -> savedNotes
+        }
     }
 
     val notes = remember {
@@ -1017,8 +1021,7 @@ private fun NotesScreen(
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
     val noteCount = notes.size.coerceAtLeast(1)
-    val defaultNoteCountRange = (DEFAULT_NOTES_COUNT - 1).coerceAtLeast(1)
-    val noteCountDensity = ((noteCount - 1).toFloat() / defaultNoteCountRange.toFloat()).coerceIn(0f, 1f)
+    val noteCountDensity = ((noteCount - 1).toFloat() / 99f).coerceIn(0f, 1f)
     val densityCurve = kotlin.math.sqrt(noteCountDensity)
     val screenWidthPx = with(LocalDensity.current) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() }
@@ -2085,6 +2088,16 @@ private fun defaultStickyNotes(): List<StickyNote> {
             front = NoteSide(label = "front", text = "$title #$index"),
             back = NoteSide(label = "back", text = "Test note $index. $action")
         )
+    }
+}
+
+private fun isLegacyBuiltInTestSet(notes: List<StickyNote>): Boolean {
+    if (notes.size != 19) return false
+    val expectedIds = (1001..1019).map { it.toString() }.toSet()
+    val noteIds = notes.map { it.id }.toSet()
+    if (noteIds != expectedIds) return false
+    return notes.all { note ->
+        note.back.text.startsWith("Test note ")
     }
 }
 
