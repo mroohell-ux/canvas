@@ -196,7 +196,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
         when {
             savedNotes == null -> defaultStickyNotes()
-            isBuiltInTestSeedBelowTarget(savedNotes) -> defaultStickyNotes()
+            savedNotes.size < 100 -> defaultStickyNotes()
             else -> savedNotes
         }
     }
@@ -2088,14 +2088,6 @@ private fun defaultStickyNotes(): List<StickyNote> {
             front = NoteSide(label = "front", text = "$title #$index"),
             back = NoteSide(label = "back", text = "Test note $index. $action")
         )
-    }
-}
-
-private fun isBuiltInTestSeedBelowTarget(notes: List<StickyNote>): Boolean {
-    if (notes.size >= 100 || notes.isEmpty()) return false
-    return notes.all { note ->
-        note.back.text.startsWith("Test note ") &&
-            note.id.toLongOrNull()?.let { it in 1001L..1999L } == true
     }
 }
 
