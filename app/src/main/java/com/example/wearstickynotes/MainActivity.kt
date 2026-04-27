@@ -164,6 +164,7 @@ private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
 private const val GENERIC_SCROLL_PAGE_THRESHOLD = 1f
 private const val MAX_VISIBLE_BUBBLE_NOTES = 12
+private const val DEFAULT_NOTES_COUNT = 19
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1016,8 +1017,8 @@ private fun NotesScreen(
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
     val noteCount = notes.size.coerceAtLeast(1)
-    val overCapCount = (noteCount - MAX_VISIBLE_BUBBLE_NOTES).coerceAtLeast(0)
-    val noteCountDensity = (overCapCount.toFloat() / MAX_VISIBLE_BUBBLE_NOTES.toFloat()).coerceIn(0f, 1f)
+    val defaultNoteCountRange = (DEFAULT_NOTES_COUNT - 1).coerceAtLeast(1)
+    val noteCountDensity = ((noteCount - 1).toFloat() / defaultNoteCountRange.toFloat()).coerceIn(0f, 1f)
     val densityCurve = kotlin.math.sqrt(noteCountDensity)
     val screenWidthPx = with(LocalDensity.current) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() }
