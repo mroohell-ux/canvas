@@ -1032,7 +1032,7 @@ private fun NotesScreen(
     val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
     val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
     val bubblePanSpeed = 9.8f
-    val bubbleDiameterScale = (1.14f - (densityCurve * 0.34f)).coerceIn(0.64f, 1.18f)
+    val bubbleDiameterScale = (1.34f - (densityCurve * 0.30f)).coerceIn(0.82f, 1.34f)
     val bubbleItemSize = previewCircleSize * bubbleDiameterScale
     val bubbleItemSizePx = with(LocalDensity.current) { bubbleItemSize.toPx() }
     val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx, bubbleShuffleSeed) {
@@ -1417,19 +1417,19 @@ private fun NotesScreen(
         ) {
             if (isBubbleMode) {
                 val bubbleFontSize = when {
-                    noteCount >= 90 -> 8.sp
-                    noteCount >= 50 -> 9.sp
-                    else -> 10.sp
+                    noteCount >= 90 -> 9.sp
+                    noteCount >= 50 -> 10.sp
+                    else -> 11.sp
                 }
                 val bubbleLineHeight = when {
-                    noteCount >= 90 -> 10.sp
-                    noteCount >= 50 -> 11.sp
-                    else -> 12.sp
+                    noteCount >= 90 -> 11.sp
+                    noteCount >= 50 -> 12.sp
+                    else -> 13.sp
                 }
                 val bubbleSnippetLimit = when {
-                    noteCount >= 90 -> 16
-                    noteCount >= 50 -> 20
-                    else -> 28
+                    noteCount >= 90 -> 18
+                    noteCount >= 50 -> 24
+                    else -> 32
                 }
                 Box(
                     modifier = Modifier
