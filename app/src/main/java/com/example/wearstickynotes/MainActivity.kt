@@ -163,6 +163,7 @@ private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
 private const val GENERIC_SCROLL_PAGE_THRESHOLD = 1f
+private const val MAX_VISIBLE_BUBBLE_NOTES = 12
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1064,6 +1065,14 @@ private fun NotesScreen(
             bestCandidate
         }
     }
+    val visibleBubbleIndices = remember(notes, bubbleAnchors, bubblePan) {
+        notes.indices
+            .sortedBy { index ->
+                val anchor = bubbleAnchors.getOrNull(index) ?: BubbleAnchor(0f, 0f, 0.5f)
+                hypot(anchor.x + bubblePan.x, anchor.y + bubblePan.y)
+            }
+            .take(MAX_VISIBLE_BUBBLE_NOTES)
+    }
     fun updateBubblePan(deltaX: Float, deltaY: Float) {
         bubblePan = Offset(
             x = (bubblePan.x + (deltaX * bubblePanSpeed)).coerceIn(-bubblePanLimitX, bubblePanLimitX),
@@ -1427,7 +1436,8 @@ private fun NotesScreen(
                             }
                         }
                 ) {
-                    notes.forEachIndexed { index, note ->
+                    visibleBubbleIndices.forEach { index ->
+                        val note = notes[index]
                         val anchor = bubbleAnchors.getOrNull(index) ?: BubbleAnchor(0f, 0f, 0.5f)
                         val distanceFromCenter = hypot(anchor.x, anchor.y)
                         val depthFade = (1f - (distanceFromCenter / (bubbleSpaceWidthPx * 0.9f))).coerceIn(0.58f, 1f)
