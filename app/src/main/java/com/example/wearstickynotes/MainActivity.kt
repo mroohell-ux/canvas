@@ -794,7 +794,9 @@ private fun CardFlowsScreen(
         }
 
         fun centerProgress(offset: Float): Float {
-            return (1f - (abs(offset) / (spacingPx * 2.2f))).coerceIn(0f, 1f)
+            // Keep scale interpolation linear across one "step" of movement so
+            // growth/shrink remains perceptible for the full transition.
+            return (1f - (abs(offset) / spacingPx)).coerceIn(0f, 1f)
         }
 
         fun scaleFor(offset: Float): Float = 0.80f + (centerProgress(offset) * 0.28f)
