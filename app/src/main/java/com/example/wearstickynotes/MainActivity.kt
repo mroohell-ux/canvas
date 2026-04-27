@@ -196,7 +196,7 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
 
         when {
             savedNotes == null -> defaultStickyNotes()
-            isLegacyBuiltInTestSet(savedNotes) -> defaultStickyNotes()
+            isBuiltInTestSeedBelowTarget(savedNotes) -> defaultStickyNotes()
             else -> savedNotes
         }
     }
@@ -2091,13 +2091,11 @@ private fun defaultStickyNotes(): List<StickyNote> {
     }
 }
 
-private fun isLegacyBuiltInTestSet(notes: List<StickyNote>): Boolean {
-    if (notes.size != 19) return false
-    val expectedIds = (1001..1019).map { it.toString() }.toSet()
-    val noteIds = notes.map { it.id }.toSet()
-    if (noteIds != expectedIds) return false
+private fun isBuiltInTestSeedBelowTarget(notes: List<StickyNote>): Boolean {
+    if (notes.size >= 100 || notes.isEmpty()) return false
     return notes.all { note ->
-        note.back.text.startsWith("Test note ")
+        note.back.text.startsWith("Test note ") &&
+            note.id.toLongOrNull()?.let { it in 1001L..1999L } == true
     }
 }
 
