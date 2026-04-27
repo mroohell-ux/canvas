@@ -163,6 +163,7 @@ private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
 private const val GENERIC_SCROLL_PAGE_THRESHOLD = 1f
+private const val MAX_VISIBLE_BUBBLE_NOTES = 10
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -186,13 +187,18 @@ private fun StickyNotesApp(importer: PhoneImportClient) {
     val storageJson = remember { Json { ignoreUnknownKeys = true } }
 
     val initialNotes = remember(prefs, storageJson) {
-        runCatching {
+        val savedNotes = runCatching {
             prefs.getString("notes_payload", null)
                 ?.takeIf { it.isNotBlank() }
                 ?.let { storageJson.decodeFromString<List<StickyNote>>(it) }
         }.getOrNull()
             ?.takeIf { it.isNotEmpty() }
-            ?: defaultStickyNotes()
+
+        when {
+            savedNotes == null -> defaultStickyNotes()
+            savedNotes.size < 100 -> defaultStickyNotes()
+            else -> savedNotes
+        }
     }
 
     val notes = remember {
@@ -1026,7 +1032,7 @@ private fun NotesScreen(
     val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
     val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
     val bubblePanSpeed = 9.8f
-    val bubbleDiameterScale = (1.14f - (densityCurve * 0.34f)).coerceIn(0.64f, 1.18f)
+    val bubbleDiameterScale = (1.62f - (densityCurve * 0.22f)).coerceIn(1.02f, 1.65f)
     val bubbleItemSize = previewCircleSize * bubbleDiameterScale
     val bubbleItemSizePx = with(LocalDensity.current) { bubbleItemSize.toPx() }
     val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx, bubbleShuffleSeed) {
@@ -1063,6 +1069,29 @@ private fun NotesScreen(
             placedAnchors += bestCandidate
             bestCandidate
         }
+    }
+    val visibleBubbleIndices = remember(notes, bubbleAnchors, bubblePan, screenWidthPx, screenHeightPx, bubbleItemSizePx) {
+        val viewportHalfWidth = (screenWidthPx / 2f) + (bubbleItemSizePx * 0.65f)
+        val viewportHalfHeight = (screenHeightPx / 2f) + (bubbleItemSizePx * 0.65f)
+        val inViewport = notes.indices.filter { index ->
+            val anchor = bubbleAnchors.getOrNull(index) ?: BubbleAnchor(0f, 0f, 0.5f)
+            val screenX = anchor.x + bubblePan.x
+            val screenY = anchor.y + bubblePan.y
+            kotlin.math.abs(screenX) <= viewportHalfWidth && kotlin.math.abs(screenY) <= viewportHalfHeight
+        }
+
+        val ranked = if (inViewport.isNotEmpty()) {
+            inViewport
+        } else {
+            notes.indices
+        }
+
+        ranked
+            .sortedBy { index ->
+                val anchor = bubbleAnchors.getOrNull(index) ?: BubbleAnchor(0f, 0f, 0.5f)
+                hypot(anchor.x + bubblePan.x, anchor.y + bubblePan.y)
+            }
+            .take(MAX_VISIBLE_BUBBLE_NOTES)
     }
     fun updateBubblePan(deltaX: Float, deltaY: Float) {
         bubblePan = Offset(
@@ -1215,7 +1244,7 @@ private fun NotesScreen(
         }
     }
 
-    LaunchedEffect(isPreviewMode, isBubbleMode) {
+    LaunchedEffect(isBubbleMode, isPreviewMode) {
         if (isBubbleMode) {
             val selectedAnchor = if (bubbleAnchors.isNotEmpty()) {
                 bubbleAnchors.getOrNull(selectedIndex.coerceIn(0, bubbleAnchors.lastIndex))
@@ -1230,10 +1259,6 @@ private fun NotesScreen(
             } else {
                 Offset.Zero
             }
-        }
-        if (!isPreviewMode) {
-            isBubbleMode = false
-            bubblePan = Offset.Zero
         }
         previewTransitionProgress.animateTo(
             targetValue = if (isPreviewMode) 1f else 0f,
@@ -1325,10 +1350,8 @@ private fun NotesScreen(
                     if (!showTray && notes.isNotEmpty()) {
                         detectTapGestures(
                             onLongPress = {
-                                if (!isPreviewMode) {
-                                    isBubbleMode = false
-                                    isPreviewMode = true
-                                }
+                                isBubbleMode = true
+                                isPreviewMode = false
                             }
                         )
                     }
@@ -1394,19 +1417,19 @@ private fun NotesScreen(
         ) {
             if (isBubbleMode) {
                 val bubbleFontSize = when {
-                    noteCount >= 90 -> 8.sp
-                    noteCount >= 50 -> 9.sp
-                    else -> 10.sp
+                    noteCount >= 90 -> 13.sp
+                    noteCount >= 50 -> 13.sp
+                    else -> 13.sp
                 }
                 val bubbleLineHeight = when {
-                    noteCount >= 90 -> 10.sp
-                    noteCount >= 50 -> 11.sp
-                    else -> 12.sp
+                    noteCount >= 90 -> 13.sp
+                    noteCount >= 50 -> 14.sp
+                    else -> 15.sp
                 }
                 val bubbleSnippetLimit = when {
-                    noteCount >= 90 -> 16
-                    noteCount >= 50 -> 20
-                    else -> 28
+                    noteCount >= 90 -> 88
+                    noteCount >= 50 -> 88
+                    else -> 88
                 }
                 Box(
                     modifier = Modifier
@@ -1427,7 +1450,8 @@ private fun NotesScreen(
                             }
                         }
                 ) {
-                    notes.forEachIndexed { index, note ->
+                    visibleBubbleIndices.forEach { index ->
+                        val note = notes[index]
                         val anchor = bubbleAnchors.getOrNull(index) ?: BubbleAnchor(0f, 0f, 0.5f)
                         val distanceFromCenter = hypot(anchor.x, anchor.y)
                         val depthFade = (1f - (distanceFromCenter / (bubbleSpaceWidthPx * 0.9f))).coerceIn(0.58f, 1f)
@@ -1514,7 +1538,7 @@ private fun NotesScreen(
                                 fontSize = bubbleFontSize,
                                 lineHeight = bubbleLineHeight,
                                 textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 12.dp)
+                                modifier = Modifier.padding(horizontal = 6.dp)
                             )
                         }
                     }
@@ -1589,9 +1613,9 @@ private fun NotesScreen(
                         .pointerInput(note.id, showTray) {
                             detectTapGestures(
                                 onLongPress = {
-                                    if (!showTray && !isPreviewMode) {
-                                        isBubbleMode = false
-                                        isPreviewMode = true
+                                    if (!showTray) {
+                                        isBubbleMode = true
+                                        isPreviewMode = false
                                     }
                                 },
                                 onTap = {
@@ -1729,7 +1753,7 @@ private fun NotesScreen(
             }
         }
 
-        if (!isPreviewMode) {
+        if (!isPreviewMode && !isBubbleMode) {
             val currentNoteId = notes[wrappedNoteIndex(pagerState.currentPage)].id
             val isInCollection = isNoteInCollection(currentNoteId)
             Text(
@@ -1741,7 +1765,7 @@ private fun NotesScreen(
                     .padding(bottom = starBottomPadding)
                     .clickable { onToggleCollection(currentNoteId) }
             )
-        } else {
+        } else if (isPreviewMode) {
             Text(
                 text = "${wrappedNoteIndex(pagerState.currentPage) + 1}/${notes.size}",
                 color = Color.White.copy(alpha = 0.9f),
