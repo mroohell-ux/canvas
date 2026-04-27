@@ -163,7 +163,7 @@ private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
 private const val GENERIC_SCROLL_PAGE_THRESHOLD = 1f
-private const val MAX_VISIBLE_BUBBLE_NOTES = 12
+private const val MAX_VISIBLE_BUBBLE_NOTES = 10
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1032,7 +1032,7 @@ private fun NotesScreen(
     val bubblePanLimitX = ((bubbleSpaceWidthPx - screenWidthPx) / 2f).coerceAtLeast(0f)
     val bubblePanLimitY = ((bubbleSpaceHeightPx - screenHeightPx) / 2f).coerceAtLeast(0f)
     val bubblePanSpeed = 9.8f
-    val bubbleDiameterScale = (1.34f - (densityCurve * 0.30f)).coerceIn(0.82f, 1.34f)
+    val bubbleDiameterScale = (1.62f - (densityCurve * 0.22f)).coerceIn(1.02f, 1.65f)
     val bubbleItemSize = previewCircleSize * bubbleDiameterScale
     val bubbleItemSizePx = with(LocalDensity.current) { bubbleItemSize.toPx() }
     val bubbleAnchors = remember(notes.map { it.id }, bubbleSpaceWidthPx, bubbleSpaceHeightPx, bubbleShuffleSeed) {
@@ -1417,19 +1417,19 @@ private fun NotesScreen(
         ) {
             if (isBubbleMode) {
                 val bubbleFontSize = when {
-                    noteCount >= 90 -> 9.sp
-                    noteCount >= 50 -> 10.sp
-                    else -> 11.sp
+                    noteCount >= 90 -> 10.sp
+                    noteCount >= 50 -> 11.sp
+                    else -> 12.sp
                 }
                 val bubbleLineHeight = when {
-                    noteCount >= 90 -> 11.sp
-                    noteCount >= 50 -> 12.sp
-                    else -> 13.sp
+                    noteCount >= 90 -> 12.sp
+                    noteCount >= 50 -> 13.sp
+                    else -> 14.sp
                 }
                 val bubbleSnippetLimit = when {
-                    noteCount >= 90 -> 18
-                    noteCount >= 50 -> 24
-                    else -> 32
+                    noteCount >= 90 -> 28
+                    noteCount >= 50 -> 36
+                    else -> 52
                 }
                 Box(
                     modifier = Modifier
@@ -1538,7 +1538,7 @@ private fun NotesScreen(
                                 fontSize = bubbleFontSize,
                                 lineHeight = bubbleLineHeight,
                                 textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 12.dp)
+                                modifier = Modifier.padding(horizontal = 8.dp)
                             )
                         }
                     }
