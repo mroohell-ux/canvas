@@ -1417,8 +1417,8 @@ private fun NotesScreen(
         ) {
             if (isBubbleMode) {
                 val bubbleFontSize = when {
-                    noteCount >= 90 -> 11.sp
-                    noteCount >= 50 -> 12.sp
+                    noteCount >= 90 -> 13.sp
+                    noteCount >= 50 -> 13.sp
                     else -> 13.sp
                 }
                 val bubbleLineHeight = when {
@@ -1427,8 +1427,8 @@ private fun NotesScreen(
                     else -> 15.sp
                 }
                 val bubbleSnippetLimit = when {
-                    noteCount >= 90 -> 52
-                    noteCount >= 50 -> 68
+                    noteCount >= 90 -> 88
+                    noteCount >= 50 -> 88
                     else -> 88
                 }
                 Box(
