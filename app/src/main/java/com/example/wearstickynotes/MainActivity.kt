@@ -163,7 +163,8 @@ private const val SWIPE_ACCEL_VELOCITY_3_PAGES = 4000f
 private const val SWIPE_ACCEL_VELOCITY_4_PAGES = 5600f
 private const val SWIPE_MAX_PAGES_PER_FLING = 3
 private const val GENERIC_SCROLL_PAGE_THRESHOLD = 1f
-private const val MAX_VISIBLE_BUBBLE_NOTES = 10
+private const val MIN_VISIBLE_BUBBLE_NOTES = 12
+private const val MAX_VISIBLE_BUBBLE_NOTES = 28
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1073,6 +1074,9 @@ private fun NotesScreen(
     val visibleBubbleIndices = remember(notes, bubbleAnchors, bubblePan, screenWidthPx, screenHeightPx, bubbleItemSizePx) {
         val viewportHalfWidth = (screenWidthPx / 2f) + (bubbleItemSizePx * 0.65f)
         val viewportHalfHeight = (screenHeightPx / 2f) + (bubbleItemSizePx * 0.65f)
+        val targetVisibleCount = (
+            MIN_VISIBLE_BUBBLE_NOTES + (noteCountDensity * (MAX_VISIBLE_BUBBLE_NOTES - MIN_VISIBLE_BUBBLE_NOTES))
+            ).roundToInt().coerceIn(MIN_VISIBLE_BUBBLE_NOTES, MAX_VISIBLE_BUBBLE_NOTES)
         val inViewport = notes.indices.filter { index ->
             val anchor = bubbleAnchors.getOrNull(index) ?: BubbleAnchor(0f, 0f, 0.5f)
             val screenX = anchor.x + bubblePan.x
@@ -1086,12 +1090,23 @@ private fun NotesScreen(
             notes.indices
         }
 
-        ranked
+        val candidates = ranked
             .sortedBy { index ->
                 val anchor = bubbleAnchors.getOrNull(index) ?: BubbleAnchor(0f, 0f, 0.5f)
-                hypot(anchor.x + bubblePan.x, anchor.y + bubblePan.y)
+                kotlin.math.atan2(anchor.y + bubblePan.y, anchor.x + bubblePan.x)
             }
-            .take(MAX_VISIBLE_BUBBLE_NOTES)
+
+        if (candidates.size <= targetVisibleCount) {
+            candidates
+        } else {
+            val stride = candidates.size.toFloat() / targetVisibleCount.toFloat()
+            buildList(targetVisibleCount) {
+                repeat(targetVisibleCount) { slot ->
+                    val pick = (slot * stride).toInt().coerceIn(0, candidates.lastIndex)
+                    add(candidates[pick])
+                }
+            }
+        }
     }
     fun updateBubblePan(deltaX: Float, deltaY: Float) {
         bubblePan = Offset(
