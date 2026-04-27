@@ -1016,7 +1016,8 @@ private fun NotesScreen(
     val configuration = LocalConfiguration.current
     val minScreenDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
     val noteCount = notes.size.coerceAtLeast(1)
-    val noteCountDensity = ((noteCount - 1).toFloat() / 99f).coerceIn(0f, 1f)
+    val overCapCount = (noteCount - MAX_VISIBLE_BUBBLE_NOTES).coerceAtLeast(0)
+    val noteCountDensity = (overCapCount.toFloat() / MAX_VISIBLE_BUBBLE_NOTES.toFloat()).coerceIn(0f, 1f)
     val densityCurve = kotlin.math.sqrt(noteCountDensity)
     val screenWidthPx = with(LocalDensity.current) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() }
