@@ -1065,8 +1065,23 @@ private fun NotesScreen(
             bestCandidate
         }
     }
-    val visibleBubbleIndices = remember(notes, bubbleAnchors, bubblePan) {
-        notes.indices
+    val visibleBubbleIndices = remember(notes, bubbleAnchors, bubblePan, screenWidthPx, screenHeightPx, bubbleItemSizePx) {
+        val viewportHalfWidth = (screenWidthPx / 2f) + (bubbleItemSizePx * 0.65f)
+        val viewportHalfHeight = (screenHeightPx / 2f) + (bubbleItemSizePx * 0.65f)
+        val inViewport = notes.indices.filter { index ->
+            val anchor = bubbleAnchors.getOrNull(index) ?: BubbleAnchor(0f, 0f, 0.5f)
+            val screenX = anchor.x + bubblePan.x
+            val screenY = anchor.y + bubblePan.y
+            kotlin.math.abs(screenX) <= viewportHalfWidth && kotlin.math.abs(screenY) <= viewportHalfHeight
+        }
+
+        val ranked = if (inViewport.isNotEmpty()) {
+            inViewport
+        } else {
+            notes.indices
+        }
+
+        ranked
             .sortedBy { index ->
                 val anchor = bubbleAnchors.getOrNull(index) ?: BubbleAnchor(0f, 0f, 0.5f)
                 hypot(anchor.x + bubblePan.x, anchor.y + bubblePan.y)
