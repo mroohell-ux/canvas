@@ -1244,7 +1244,7 @@ private fun NotesScreen(
         }
     }
 
-    LaunchedEffect(isPreviewMode, isBubbleMode) {
+    LaunchedEffect(isBubbleMode, isPreviewMode) {
         if (isBubbleMode) {
             val selectedAnchor = if (bubbleAnchors.isNotEmpty()) {
                 bubbleAnchors.getOrNull(selectedIndex.coerceIn(0, bubbleAnchors.lastIndex))
@@ -1259,10 +1259,6 @@ private fun NotesScreen(
             } else {
                 Offset.Zero
             }
-        }
-        if (!isPreviewMode) {
-            isBubbleMode = false
-            bubblePan = Offset.Zero
         }
         previewTransitionProgress.animateTo(
             targetValue = if (isPreviewMode) 1f else 0f,
@@ -1354,10 +1350,8 @@ private fun NotesScreen(
                     if (!showTray && notes.isNotEmpty()) {
                         detectTapGestures(
                             onLongPress = {
-                                if (!isPreviewMode) {
-                                    isBubbleMode = false
-                                    isPreviewMode = true
-                                }
+                                isBubbleMode = true
+                                isPreviewMode = false
                             }
                         )
                     }
@@ -1619,9 +1613,9 @@ private fun NotesScreen(
                         .pointerInput(note.id, showTray) {
                             detectTapGestures(
                                 onLongPress = {
-                                    if (!showTray && !isPreviewMode) {
-                                        isBubbleMode = false
-                                        isPreviewMode = true
+                                    if (!showTray) {
+                                        isBubbleMode = true
+                                        isPreviewMode = false
                                     }
                                 },
                                 onTap = {
@@ -1759,7 +1753,7 @@ private fun NotesScreen(
             }
         }
 
-        if (!isPreviewMode) {
+        if (!isPreviewMode && !isBubbleMode) {
             val currentNoteId = notes[wrappedNoteIndex(pagerState.currentPage)].id
             val isInCollection = isNoteInCollection(currentNoteId)
             Text(
@@ -1771,7 +1765,7 @@ private fun NotesScreen(
                     .padding(bottom = starBottomPadding)
                     .clickable { onToggleCollection(currentNoteId) }
             )
-        } else {
+        } else if (isPreviewMode) {
             Text(
                 text = "${wrappedNoteIndex(pagerState.currentPage) + 1}/${notes.size}",
                 color = Color.White.copy(alpha = 0.9f),
