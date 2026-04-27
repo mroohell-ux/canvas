@@ -1207,8 +1207,7 @@ private fun NotesScreen(
     }
     val starFontSize = (minScreenDp * 0.075f).coerceIn(12f, 18f).sp
     val starBottomPadding = (minScreenDp * 0.045f).coerceIn(8f, 16f).dp
-    val starTouchTargetWidth = 72.dp
-    val starTouchTargetHeight = 46.dp
+    val starTouchHorizontalPadding = 14.dp
     val starTouchExtraBottom = 12.dp
     val trayScrimAlpha by animateFloatAsState(
         targetValue = if (showTray) 0.30f else 0f,
@@ -1774,20 +1773,19 @@ private fun NotesScreen(
         if (!isPreviewMode && !isBubbleMode) {
             val currentNoteId = notes[wrappedNoteIndex(pagerState.currentPage)].id
             val isInCollection = isNoteInCollection(currentNoteId)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = (starBottomPadding - starTouchExtraBottom).coerceAtLeast(0.dp))
-                    .size(width = starTouchTargetWidth, height = starTouchTargetHeight)
-                    .clickable { onToggleCollection(currentNoteId) }
-            )
             Text(
                 text = if (isInCollection) "★" else "☆",
                 color = if (isInCollection) Color(0xFFFFD54F) else Color.White,
                 fontSize = starFontSize,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = starBottomPadding)
+                    .padding(bottom = (starBottomPadding - starTouchExtraBottom).coerceAtLeast(0.dp))
+                    .clickable { onToggleCollection(currentNoteId) }
+                    .padding(
+                        start = starTouchHorizontalPadding,
+                        end = starTouchHorizontalPadding,
+                        bottom = starTouchExtraBottom
+                    )
             )
         } else if (isPreviewMode) {
             Text(
