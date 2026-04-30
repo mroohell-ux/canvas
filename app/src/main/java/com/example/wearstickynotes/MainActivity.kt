@@ -1459,7 +1459,7 @@ private fun NotesScreen(
                                 }
                             }
                         }
-                        .pointerInput(showTray, notes.size, bubblePan, isBubbleMode) {
+                        .pointerInput(showTray, notes.size, isBubbleMode) {
                             if (!showTray && notes.isNotEmpty()) {
                                 detectTransformGestures { _, pan, _, _ ->
                                     updateBubblePan(pan.x, pan.y)
