@@ -998,6 +998,7 @@ private fun NotesScreen(
     var showTray by remember { mutableStateOf(false) }
     var isPreviewMode by remember { mutableStateOf(false) }
     var isBubbleMode by remember { mutableStateOf(false) }
+    var bubbleReturnToPreview by remember { mutableStateOf(false) }
     var bubblePan by remember { mutableStateOf(Offset.Zero) }
     var bubbleShuffleSeed by remember { mutableIntStateOf(0) }
     var genericScrollAccumulator by remember { mutableFloatStateOf(0f) }
@@ -1261,6 +1262,11 @@ private fun NotesScreen(
         }
     }
 
+    BackHandler(enabled = isBubbleMode) {
+        isBubbleMode = false
+        isPreviewMode = bubbleReturnToPreview
+    }
+
     LaunchedEffect(isBubbleMode, isPreviewMode) {
         if (isBubbleMode) {
             val selectedAnchor = if (bubbleAnchors.isNotEmpty()) {
@@ -1358,6 +1364,7 @@ private fun NotesScreen(
                     if (!showTray && notes.isNotEmpty() && isPreviewMode && !isBubbleMode) {
                         detectTransformGestures { _, _, zoom, _ ->
                             if (abs(zoom - 1f) > 0.04f) {
+                                bubbleReturnToPreview = isPreviewMode
                                 isBubbleMode = true
                             }
                         }
@@ -1367,6 +1374,7 @@ private fun NotesScreen(
                     if (!showTray && notes.isNotEmpty()) {
                         detectTapGestures(
                             onLongPress = {
+                                bubbleReturnToPreview = isPreviewMode
                                 isBubbleMode = true
                                 isPreviewMode = false
                             }
@@ -1459,7 +1467,7 @@ private fun NotesScreen(
                                 }
                             }
                         }
-                        .pointerInput(showTray, notes.size, bubblePan, isBubbleMode) {
+                        .pointerInput(showTray, notes.size, isBubbleMode) {
                             if (!showTray && notes.isNotEmpty()) {
                                 detectTransformGestures { _, pan, _, _ ->
                                     updateBubblePan(pan.x, pan.y)
@@ -1545,6 +1553,7 @@ private fun NotesScreen(
                                     onSelectedIndexChange(index)
                                     scope.launch { pagerState.scrollToPage(nearestVirtualPage(pagerState.currentPage, index)) }
                                     isBubbleMode = false
+                                    bubbleReturnToPreview = false
                                     isPreviewMode = false
                                 },
                             contentAlignment = Alignment.Center
@@ -1631,6 +1640,7 @@ private fun NotesScreen(
                             detectTapGestures(
                                 onLongPress = {
                                     if (!showTray) {
+                                        bubbleReturnToPreview = isPreviewMode
                                         isBubbleMode = true
                                         isPreviewMode = false
                                     }
